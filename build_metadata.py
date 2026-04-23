@@ -161,11 +161,21 @@ def join_ids(ids) -> str:
 
 def write_csv(path: Path, columns: list[str], rows: list[dict]) -> None:
     """Write a CSV with UTF-8 + LF line endings. Multiline / comma / quote
-    safe via the stdlib ``csv`` module (QUOTE_MINIMAL, automatic quoting)."""
+    safe via the stdlib ``csv`` module (QUOTE_MINIMAL, automatic quoting).
+
+    Drops columns that are empty for all rows: otherwise pandas infers the
+    column as float64 (NaN-filled), which breaks datannurpy's polars-based
+    ingestion for fields typed str|None or int|None.
+    """
+    # Keep only columns with at least one non-empty value
+    kept = [
+        c for c in columns
+        if c == "id" or any(row.get(c) not in (None, "") for row in rows)
+    ]
     with path.open("w", encoding="utf-8", newline="") as fh:
         w = csv.DictWriter(
             fh,
-            fieldnames=columns,
+            fieldnames=kept,
             extrasaction="ignore",
             quoting=csv.QUOTE_MINIMAL,
             lineterminator="\n",
@@ -173,8 +183,10 @@ def write_csv(path: Path, columns: list[str], rows: list[dict]) -> None:
         w.writeheader()
         for row in rows:
             # Normalize None → "" so CSV stays clean
-            w.writerow({c: ("" if row.get(c) is None else row.get(c)) for c in columns})
-    print(f"  wrote {path.relative_to(ROOT)}  ({len(rows)} rows)")
+            w.writerow({c: ("" if row.get(c) is None else row.get(c)) for c in kept})
+    dropped = [c for c in columns if c not in kept]
+    suffix = f"  (dropped empty: {', '.join(dropped)})" if dropped else ""
+    print(f"  wrote {path.relative_to(ROOT)}  ({len(rows)} rows){suffix}")
 
 
 # =============================================================================
@@ -462,7 +474,6 @@ def build_datasets(packages: dict[str, dict], manifests: dict[str, dict]) -> lis
             "delivery_format": fmt_value,
             "type": "resource",
             "localisation": POLITICAL_LEVEL_FR.get(level) if level else None,
-            "data_size": m.get("downloaded_bytes") or None,
             "start_date": start_date,
             "end_date": end_date,
             "last_update_date": res.get("modified") or res.get("last_modified") or m.get("modified"),
@@ -518,7 +529,7 @@ def build_tags(packages: dict[str, dict]) -> list[dict]:
 
 INSTITUTION_COLS = ["id", "parent_id", "tag_ids", "doc_ids", "name", "description", "email", "phone", "start_date", "end_date"]
 FOLDER_COLS = ["id", "parent_id", "manager_id", "owner_id", "tag_ids", "doc_ids", "name", "description", "data_path", "delivery_format", "type", "last_update_date", "localisation", "start_date", "end_date", "updating_each"]
-DATASET_COLS = ["id", "folder_id", "manager_id", "owner_id", "tag_ids", "doc_ids", "name", "description", "data_path", "link", "delivery_format", "type", "localisation", "data_size", "start_date", "end_date", "last_update_date", "updating_each"]
+DATASET_COLS = ["id", "folder_id", "manager_id", "owner_id", "tag_ids", "doc_ids", "name", "description", "data_path", "link", "delivery_format", "type", "localisation", "start_date", "end_date", "last_update_date", "updating_each"]
 TAG_COLS = ["id", "parent_id", "doc_ids", "name", "description"]
 DOC_COLS = ["id", "name", "description", "path", "type", "last_update"]
 

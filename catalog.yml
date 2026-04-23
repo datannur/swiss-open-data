@@ -5,4 +5,4 @@ open_browser: true
 log_file: ./out/datannurpy.log
 
 add:
-  - folder: ./data
+  - folder: ./data/parquet
