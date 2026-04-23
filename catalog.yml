@@ -1,0 +1,8 @@
+app_path: ./catalog
+metadata_path: ./metadata
+depth: dataset
+open_browser: true
+log_file: ./out/datannurpy.log
+
+add:
+  - folder: ./data
