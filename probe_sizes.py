@@ -163,8 +163,7 @@ def main() -> int:
         over = sum(
             1
             for r in results
-            if r and r.get("content_length")
-            and r["content_length"] > fmt.max_bytes
+            if r and r.get("content_length") and r["content_length"] > fmt.max_bytes
         )
         print(f"over {fmt.max_bytes / 1e6:.0f} MB limit : {over}")
     print(f"elapsed            : {time.monotonic() - t0:.1f} s")

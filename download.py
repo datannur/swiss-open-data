@@ -18,6 +18,7 @@ Usage:
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 import sys
@@ -38,6 +39,21 @@ TIMEOUT = (15, 120)
 WORKERS = 6
 CHUNK = 1 << 20  # 1 MiB
 MAGIC_SNIFF_BYTES = 16
+
+EXCLUDED_CSV = Path(__file__).parent / "excluded_datasets.csv"
+
+
+def load_excluded_ids() -> set[str]:
+    """Read ids flagged in excluded_datasets.csv (skipped before download)."""
+    if not EXCLUDED_CSV.exists():
+        return set()
+    ids: set[str] = set()
+    with EXCLUDED_CSV.open(newline="") as f:
+        for row in csv.DictReader(f):
+            rid = (row.get("id") or "").strip()
+            if rid:
+                ids.add(rid)
+    return ids
 
 
 def target_path(fmt: FormatConfig, res: dict[str, Any]) -> Path:
@@ -161,9 +177,7 @@ def download_one(
 
     url = res["url"]
     try:
-        with session.get(
-            url, stream=True, timeout=TIMEOUT, allow_redirects=True
-        ) as r:
+        with session.get(url, stream=True, timeout=TIMEOUT, allow_redirects=True) as r:
             ct = r.headers.get("Content-Type")
             if r.status_code >= 400:
                 return (
@@ -247,16 +261,12 @@ def download_one(
                 ct,
             )
         tmp.replace(dest)
-        return dest, DlResult(
-            "ok", written, h.hexdigest(), r.status_code, None, ct
-        )
+        return dest, DlResult("ok", written, h.hexdigest(), r.status_code, None, ct)
     except requests.RequestException as exc:
         tmp.unlink(missing_ok=True)
         return (
             data_dir(fmt) / f"{rid}{fmt.file_ext}",
-            DlResult(
-                "network_error", 0, None, None, f"{type(exc).__name__}: {exc}"
-            ),
+            DlResult("network_error", 0, None, None, f"{type(exc).__name__}: {exc}"),
         )
 
 
@@ -317,11 +327,27 @@ def main() -> int:
     counts: dict[str, int] = {}
     bytes_total = 0
 
+    excluded_ids = load_excluded_ids()
+    if excluded_ids:
+        print(f"[{fmt.key}] excluded_datasets.csv: {len(excluded_ids)} ids")
+
     # Filter up-front the unreachable ones from probe stage
     to_do = []
     for res in resources:
         rid = res.get("resource_id")
         if not rid or not res.get("url"):
+            continue
+        if rid in excluded_ids:
+            manifest[rid] = {
+                **res,
+                "local_path": None,
+                "download_status": "skipped_excluded",
+                "downloaded_bytes": 0,
+                "sha256": None,
+                "http_status": None,
+                "error": "id in excluded_datasets.csv",
+                "downloaded_at": None,
+            }
             continue
         probe = res.get("probe") or {}
         if probe.get("error") or (

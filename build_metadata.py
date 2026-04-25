@@ -169,7 +169,8 @@ def write_csv(path: Path, columns: list[str], rows: list[dict]) -> None:
     """
     # Keep only columns with at least one non-empty value
     kept = [
-        c for c in columns
+        c
+        for c in columns
         if c == "id" or any(row.get(c) not in (None, "") for row in rows)
     ]
     with path.open("w", encoding="utf-8", newline="") as fh:
@@ -235,6 +236,20 @@ def load_manifests() -> dict[str, dict]:
     return out
 
 
+def load_excluded_ids() -> set[str]:
+    """Read ids flagged in excluded_datasets.csv (drop from dataset metadata)."""
+    fp = ROOT / "excluded_datasets.csv"
+    if not fp.exists():
+        return set()
+    ids: set[str] = set()
+    with fp.open(newline="") as f:
+        for row in csv.DictReader(f):
+            rid = (row.get("id") or "").strip()
+            if rid:
+                ids.add(rid)
+    return ids
+
+
 # =============================================================================
 # Build entities
 # =============================================================================
@@ -282,34 +297,38 @@ def build_institutions(packages: dict[str, dict]) -> list[dict]:
     ]
     for vid in virtual_order:
         parent, name = VIRTUAL_INSTITUTIONS[vid]
-        rows.append({
-            "id": vid,
-            "parent_id": parent,
-            "name": name,
-            "description": None,
-            "email": None,
-            "phone": None,
-            "start_date": None,
-            "end_date": None,
-            "tag_ids": None,
-            "doc_ids": None,
-        })
+        rows.append(
+            {
+                "id": vid,
+                "parent_id": parent,
+                "name": name,
+                "description": None,
+                "email": None,
+                "phone": None,
+                "start_date": None,
+                "end_date": None,
+                "tag_ids": None,
+                "doc_ids": None,
+            }
+        )
 
     # 2. Real CKAN organisations
     for name in sorted(orgs):
         o = orgs[name]
-        rows.append({
-            "id": name,
-            "parent_id": resolve_parent(name, o),
-            "name": pick_fr(o.get("display_name")) or o.get("title") or name,
-            "description": pick_fr(o.get("description")),
-            "email": None,
-            "phone": None,
-            "start_date": None,
-            "end_date": None,
-            "tag_ids": None,
-            "doc_ids": None,
-        })
+        rows.append(
+            {
+                "id": name,
+                "parent_id": resolve_parent(name, o),
+                "name": pick_fr(o.get("display_name")) or o.get("title") or name,
+                "description": pick_fr(o.get("description")),
+                "email": None,
+                "phone": None,
+                "start_date": None,
+                "end_date": None,
+                "tag_ids": None,
+                "doc_ids": None,
+            }
+        )
     return rows
 
 
@@ -337,32 +356,36 @@ def build_folders_and_docs(
 
     # 1. Thematic roots
     for tid, tname in DCAT_GROUPS_FR.items():
-        folder_rows.append({
-            "id": tid,
-            "parent_id": None,
-            "name": tname,
-            "description": None,
-            "type": "thematique",
-            "owner_id": None,
-            "manager_id": None,
-            "tag_ids": None,
-            "doc_ids": None,
-            "data_path": None,
-            "delivery_format": None,
-            "last_update_date": None,
-            "localisation": None,
-            "start_date": None,
-            "end_date": None,
-            "updating_each": None,
-        })
+        folder_rows.append(
+            {
+                "id": tid,
+                "parent_id": None,
+                "name": tname,
+                "description": None,
+                "type": "thematique",
+                "owner_id": None,
+                "manager_id": None,
+                "tag_ids": None,
+                "doc_ids": None,
+                "data_path": None,
+                "delivery_format": None,
+                "last_update_date": None,
+                "localisation": None,
+                "start_date": None,
+                "end_date": None,
+                "updating_each": None,
+            }
+        )
     for tid, tname in EXTRA_ROOTS_FR.items():
-        folder_rows.append({
-            "id": tid,
-            "parent_id": None,
-            "name": tname,
-            "description": None,
-            "type": "thematique",
-        })
+        folder_rows.append(
+            {
+                "id": tid,
+                "parent_id": None,
+                "name": tname,
+                "description": None,
+                "type": "thematique",
+            }
+        )
 
     # 2. Package folders
     for pid, p in sorted(packages.items()):
@@ -387,34 +410,40 @@ def build_folders_and_docs(
         doc_id = None
         if doc_url:
             doc_id = f"doc---{pid}"
-            doc_rows.append({
-                "id": doc_id,
-                "name": f"Fiche opendata.swiss — {pick_fr(p.get('title')) or p.get('name') or pid}",
-                "description": None,
-                "path": doc_url,
-                "type": "url",
-                "last_update": p.get("metadata_modified"),
-            })
+            doc_rows.append(
+                {
+                    "id": doc_id,
+                    "name": f"Fiche opendata.swiss — {pick_fr(p.get('title')) or p.get('name') or pid}",
+                    "description": None,
+                    "path": doc_url,
+                    "type": "url",
+                    "last_update": p.get("metadata_modified"),
+                }
+            )
 
         accrual_uri = p.get("accrual_periodicity") or ""
-        folder_rows.append({
-            "id": pid,
-            "parent_id": parent,
-            "name": pick_fr(p.get("title")) or p.get("name") or pid,
-            "description": pick_fr(p.get("description")),
-            "type": "package",
-            "owner_id": org_name,
-            "manager_id": None,
-            "tag_ids": tag_ids or None,
-            "doc_ids": doc_id,
-            "data_path": None,
-            "delivery_format": None,
-            "last_update_date": p.get("modified") or p.get("metadata_modified"),
-            "localisation": POLITICAL_LEVEL_FR.get(level) if level else None,
-            "start_date": start_date,
-            "end_date": end_date,
-            "updating_each": ACCRUAL_FR.get(accrual_uri, accrual_uri if accrual_uri else None),
-        })
+        folder_rows.append(
+            {
+                "id": pid,
+                "parent_id": parent,
+                "name": pick_fr(p.get("title")) or p.get("name") or pid,
+                "description": pick_fr(p.get("description")),
+                "type": "package",
+                "owner_id": org_name,
+                "manager_id": None,
+                "tag_ids": tag_ids or None,
+                "doc_ids": doc_id,
+                "data_path": None,
+                "delivery_format": None,
+                "last_update_date": p.get("modified") or p.get("metadata_modified"),
+                "localisation": POLITICAL_LEVEL_FR.get(level) if level else None,
+                "start_date": start_date,
+                "end_date": end_date,
+                "updating_each": ACCRUAL_FR.get(
+                    accrual_uri, accrual_uri if accrual_uri else None
+                ),
+            }
+        )
 
     return folder_rows, doc_rows, {}
 
@@ -429,7 +458,7 @@ def build_datasets(packages: dict[str, dict], manifests: dict[str, dict]) -> lis
 
     rows: list[dict] = []
     for rid, m in sorted(manifests.items()):
-        pid = m.get("dataset_id")
+        pid = m.get("dataset_id") or ""
         p = packages.get(pid)
         if p is None:
             continue  # resource belonged to a package we don't have (shouldn't happen)
@@ -446,7 +475,9 @@ def build_datasets(packages: dict[str, dict], manifests: dict[str, dict]) -> lis
         accrual_uri = p.get("accrual_periodicity") or ""
 
         fmt_value = (res.get("format") or m.get("format") or "").upper()
-        name_fr = pick_fr(res.get("title")) or pick_fr(res.get("name")) or fmt_value or rid
+        name_fr = (
+            pick_fr(res.get("title")) or pick_fr(res.get("name")) or fmt_value or rid
+        )
         # Avoid names that are just "csv" / "parquet" — prefix with package title
         pkg_title = pick_fr(p.get("title")) or p.get("name") or pid
         if name_fr.strip().lower() in {"csv", "parquet", "xls", "xlsx", "excel", ""}:
@@ -454,53 +485,76 @@ def build_datasets(packages: dict[str, dict], manifests: dict[str, dict]) -> lis
         description = pick_fr(res.get("description")) or pick_fr(p.get("description"))
 
         local_path = m.get("local_path") or ""
-        # make relative to project root if possible
-        try:
-            local_path = str(Path(local_path).resolve().relative_to(ROOT))
-        except (ValueError, OSError):
-            pass
+        # Derive delivery_format from the actual local extension when available
+        # (CKAN labels both .xls and .xlsx as "XLS"); fall back to CKAN value.
+        if local_path:
+            ext = Path(local_path).suffix.lstrip(".").lower()
+            fmt_lower = ext or fmt_value.lower()
+        else:
+            fmt_lower = fmt_value.lower()
+        # data_path is resolved by datannurpy relative to the metadata file's
+        # directory (METADATA_DIR), so write the path relative to that.
+        if local_path:
+            try:
+                local_path = str(
+                    Path(local_path)
+                    .resolve()
+                    .relative_to(META_DIR.resolve(), walk_up=True)
+                )
+            except ValueError, OSError:
+                pass
 
-        rows.append({
-            "id": rid,
-            "folder_id": pid,
-            "owner_id": org.get("name"),
-            "manager_id": None,
-            "tag_ids": None,
-            "doc_ids": None,
-            "name": name_fr,
-            "description": description,
-            "data_path": local_path,
-            "link": res.get("url") or m.get("url"),
-            "delivery_format": fmt_value,
-            "type": "resource",
-            "localisation": POLITICAL_LEVEL_FR.get(level) if level else None,
-            "start_date": start_date,
-            "end_date": end_date,
-            "last_update_date": res.get("modified") or res.get("last_modified") or m.get("modified"),
-            "updating_each": ACCRUAL_FR.get(accrual_uri, accrual_uri if accrual_uri else None),
-        })
+        rows.append(
+            {
+                "id": rid,
+                "folder_id": pid,
+                "owner_id": org.get("name"),
+                "manager_id": None,
+                "tag_ids": None,
+                "doc_ids": None,
+                "name": name_fr,
+                "description": description,
+                "data_path": local_path,
+                "link": res.get("url") or m.get("url"),
+                "delivery_format": fmt_lower or None,
+                "type": "resource",
+                "localisation": POLITICAL_LEVEL_FR.get(level) if level else None,
+                "start_date": start_date,
+                "end_date": end_date,
+                "last_update_date": res.get("modified")
+                or res.get("last_modified")
+                or m.get("modified"),
+                "updating_each": ACCRUAL_FR.get(
+                    accrual_uri, accrual_uri if accrual_uri else None
+                ),
+            }
+        )
     return rows
 
 
 def build_tags(packages: dict[str, dict]) -> list[dict]:
     rows: list[dict] = []
     # Root thematic tag
-    rows.append({
-        "id": "thematique",
-        "parent_id": None,
-        "name": "Thématique",
-        "description": None,
-        "doc_ids": None,
-    })
-    # One child per DCAT group
-    for tid, tname in DCAT_GROUPS_FR.items():
-        rows.append({
-            "id": f"thematique---{tid}",
-            "parent_id": "thematique",
-            "name": tname,
+    rows.append(
+        {
+            "id": "thematique",
+            "parent_id": None,
+            "name": "Thématique",
             "description": None,
             "doc_ids": None,
-        })
+        }
+    )
+    # One child per DCAT group
+    for tid, tname in DCAT_GROUPS_FR.items():
+        rows.append(
+            {
+                "id": f"thematique---{tid}",
+                "parent_id": "thematique",
+                "name": tname,
+                "description": None,
+                "doc_ids": None,
+            }
+        )
 
     # Free keywords (FR), deduped. Keep original text as display name.
     seen: dict[str, str] = {}
@@ -512,13 +566,15 @@ def build_tags(packages: dict[str, dict]) -> list[dict]:
             seen.setdefault(tid, kw)
 
     for tid, name in sorted(seen.items()):
-        rows.append({
-            "id": tid,
-            "parent_id": None,
-            "name": name,
-            "description": None,
-            "doc_ids": None,
-        })
+        rows.append(
+            {
+                "id": tid,
+                "parent_id": None,
+                "name": name,
+                "description": None,
+                "doc_ids": None,
+            }
+        )
     return rows
 
 
@@ -527,11 +583,143 @@ def build_tags(packages: dict[str, dict]) -> list[dict]:
 # =============================================================================
 
 
-INSTITUTION_COLS = ["id", "parent_id", "tag_ids", "doc_ids", "name", "description", "email", "phone", "start_date", "end_date"]
-FOLDER_COLS = ["id", "parent_id", "manager_id", "owner_id", "tag_ids", "doc_ids", "name", "description", "data_path", "delivery_format", "type", "last_update_date", "localisation", "start_date", "end_date", "updating_each"]
-DATASET_COLS = ["id", "folder_id", "manager_id", "owner_id", "tag_ids", "doc_ids", "name", "description", "data_path", "link", "delivery_format", "type", "localisation", "start_date", "end_date", "last_update_date", "updating_each"]
+INSTITUTION_COLS = [
+    "id",
+    "parent_id",
+    "tag_ids",
+    "doc_ids",
+    "name",
+    "description",
+    "email",
+    "phone",
+    "start_date",
+    "end_date",
+]
+FOLDER_COLS = [
+    "id",
+    "parent_id",
+    "manager_id",
+    "owner_id",
+    "tag_ids",
+    "doc_ids",
+    "name",
+    "description",
+    "data_path",
+    "delivery_format",
+    "type",
+    "last_update_date",
+    "localisation",
+    "start_date",
+    "end_date",
+    "updating_each",
+]
+DATASET_COLS = [
+    "id",
+    "folder_id",
+    "manager_id",
+    "owner_id",
+    "tag_ids",
+    "doc_ids",
+    "name",
+    "description",
+    "data_path",
+    "link",
+    "delivery_format",
+    "type",
+    "localisation",
+    "start_date",
+    "end_date",
+    "last_update_date",
+    "updating_each",
+]
 TAG_COLS = ["id", "parent_id", "doc_ids", "name", "description"]
 DOC_COLS = ["id", "name", "description", "path", "type", "last_update"]
+
+
+def cascade_purge(
+    folders: list[dict],
+    datasets: list[dict],
+    docs: list[dict],
+    tags: list[dict],
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """Drop folders with no surviving descendants, then orphan docs/tags.
+
+    A folder is kept iff at least one dataset lives under it (directly or via
+    a kept descendant folder). Tags/docs referenced only by purged folders
+    are dropped too.
+    """
+    children_of: dict[str, list[str]] = defaultdict(list)
+    for f in folders:
+        pid = f.get("parent_id")
+        if pid:
+            children_of[pid].append(f["id"])
+
+    # Folders that directly host a dataset
+    has_dataset: set[str] = {d["folder_id"] for d in datasets}
+
+    # Bottom-up: a folder is kept if it has datasets or a kept descendant.
+    keep: set[str] = set()
+
+    def visit(fid: str) -> bool:
+        kept_child = False
+        for cid in children_of.get(fid, []):
+            if visit(cid):
+                kept_child = True
+        if fid in has_dataset or kept_child:
+            keep.add(fid)
+            return True
+        return False
+
+    for f in folders:
+        if not f.get("parent_id"):
+            visit(f["id"])
+
+    kept_folders = [f for f in folders if f["id"] in keep]
+
+    # Collect referenced tag/doc ids from surviving folders + datasets
+    used_tags: set[str] = set()
+    used_docs: set[str] = set()
+
+    def collect(row: dict) -> None:
+        for col, sink in (("tag_ids", used_tags), ("doc_ids", used_docs)):
+            v = row.get(col)
+            if not v:
+                continue
+            for tok in str(v).split(","):
+                tok = tok.strip()
+                if tok:
+                    sink.add(tok)
+
+    for r in kept_folders:
+        collect(r)
+    for r in datasets:
+        collect(r)
+
+    # Keep tag tree: a tag stays if it (or any descendant) is used.
+    tag_children: dict[str, list[str]] = defaultdict(list)
+    for t in tags:
+        if t.get("parent_id"):
+            tag_children[t["parent_id"]].append(t["id"])
+
+    keep_tag: set[str] = set()
+
+    def visit_tag(tid: str) -> bool:
+        kept_child = False
+        for cid in tag_children.get(tid, []):
+            if visit_tag(cid):
+                kept_child = True
+        if tid in used_tags or kept_child:
+            keep_tag.add(tid)
+            return True
+        return False
+
+    for t in tags:
+        if not t.get("parent_id"):
+            visit_tag(t["id"])
+
+    kept_tags = [t for t in tags if t["id"] in keep_tag]
+    kept_docs = [d for d in docs if d["id"] in used_docs]
+    return kept_folders, kept_docs, kept_tags
 
 
 def main() -> int:
@@ -542,11 +730,30 @@ def main() -> int:
     manifests = load_manifests()
     print(f"  {len(manifests)} successfully downloaded resources")
 
+    excluded = load_excluded_ids()
+    if excluded:
+        before = len(manifests)
+        manifests = {rid: m for rid, m in manifests.items() if rid not in excluded}
+        print(
+            f"  excluded_datasets.csv: -{before - len(manifests)} dropped "
+            f"({len(excluded)} ids in list)"
+        )
+
     print("\nBuilding entities…")
     institutions = build_institutions(packages)
     folders, docs, _ = build_folders_and_docs(packages)
     datasets = build_datasets(packages, manifests)
     tags = build_tags(packages)
+
+    # Cascade purge: drop folders without surviving descendants, then orphan
+    # docs and tags. Idempotent — runs every build, no state to maintain.
+    if excluded:
+        n_f0, n_d0, n_t0 = len(folders), len(docs), len(tags)
+        folders, docs, tags = cascade_purge(folders, datasets, docs, tags)
+        print(
+            f"  cascade purge: -{n_f0 - len(folders)} folders, "
+            f"-{n_d0 - len(docs)} docs, -{n_t0 - len(tags)} tags"
+        )
 
     print(f"\nWriting CSVs to {META_DIR.relative_to(ROOT)}/")
     write_csv(META_DIR / "institution.csv", INSTITUTION_COLS, institutions)
@@ -559,8 +766,6 @@ def main() -> int:
     print("\nSanity checks…")
     inst_ids = {r["id"] for r in institutions}
     folder_ids = {r["id"] for r in folders}
-    tag_ids = {r["id"] for r in tags}
-    doc_ids = {r["id"] for r in docs}
 
     errors = 0
     for r in folders:
@@ -579,7 +784,9 @@ def main() -> int:
             errors += 1
     for r in institutions:
         if r.get("parent_id") and r["parent_id"] not in inst_ids:
-            print(f"  ERR institution {r['id']}: parent_id {r['parent_id']!r} not found")
+            print(
+                f"  ERR institution {r['id']}: parent_id {r['parent_id']!r} not found"
+            )
             errors += 1
     print(f"  {errors} FK error(s)")
     return 0 if errors == 0 else 1

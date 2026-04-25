@@ -1,8 +1,10 @@
 app_path: ./catalog
 metadata_path: ./metadata
-depth: dataset
+depth: variable
+refresh: true
 open_browser: true
 log_file: ./out/datannurpy.log
 
 add:
-  - folder: ./data/parquet
+  - folder: ./data
+    create_folders: false

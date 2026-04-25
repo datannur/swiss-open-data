@@ -28,6 +28,7 @@ LANGUAGE = "fr"
 def iter_packages(ckan: RemoteCKAN, fq: str) -> Iterator[dict[str, Any]]:
     start = 0
     total: int | None = None
+    resp: dict[str, Any] = {}
     while True:
         for attempt in range(1, 4):
             try:
@@ -52,13 +53,12 @@ def iter_packages(ckan: RemoteCKAN, fq: str) -> Iterator[dict[str, Any]]:
         for pkg in results:
             yield pkg
         start += len(results)
+        assert total is not None
         if start >= total:
             return
 
 
-def extract_resources(
-    pkg: dict[str, Any], res_format: str
-) -> list[dict[str, Any]]:
+def extract_resources(pkg: dict[str, Any], res_format: str) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for res in pkg.get("resources", []) or []:
         fmt = (res.get("format") or "").strip().upper()
