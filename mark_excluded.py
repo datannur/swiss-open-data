@@ -6,8 +6,8 @@ Scans datannurpy logs and adds any dataset with 0 extracted variables as
 preserved (manual edits / additional reasons survive).
 
 Usage:
-    uv run python mark_excluded.py [out/datannurpy_*.log ...]
-    # default: all logs matching out/datannurpy_*.log
+    uv run python mark_excluded.py [datannurpy*.log ...]
+    # default: all logs matching ./datannurpy*.log and ./staging/datannurpy*.log
 """
 
 from __future__ import annotations
@@ -57,7 +57,12 @@ def main(argv: list[str]) -> int:
     if argv:
         logs = [Path(a) for a in argv]
     else:
-        logs = sorted((ROOT / "out").glob("datannurpy_*.log"))
+        logs = sorted(
+            {
+                *ROOT.glob("datannurpy*.log"),
+                *(ROOT / "staging").glob("datannurpy*.log"),
+            }
+        )
 
     if not logs:
         print("No log files to scan.", file=sys.stderr)

@@ -1,8 +1,8 @@
 # Mapping opendata.swiss (CKAN) → datannur
 
 Document de référence pour la construction du catalogue datannur à partir des
-métadonnées CKAN récupérées dans `out/<format>/datasets.jsonl` et des fichiers
-téléchargés listés dans `out/<format>/manifest.jsonl`.
+métadonnées CKAN récupérées dans `staging/packages.jsonl` et des fichiers
+téléchargés listés dans `staging/download_state.jsonl`.
 
 Corpus cible : ressources **françaises** au format **Parquet / CSV / Excel**
 (.xls + .xlsx) d'opendata.swiss.
@@ -65,7 +65,7 @@ package.
 
 | datannur       | ← CKAN                                               |
 | -------------- | ---------------------------------------------------- |
-| `institution`  | `package.organization` (+ hiérarchie reconstruite)   |
+| `institution`  | `organizations.jsonl` + `package.organization_name` (+ hiérarchie reconstruite)   |
 | `folder` (racine thématique) | un par `group` DCAT + `multi` + `other`   |
 | `folder` (package)           | un par `package` (enfant d'une racine)    |
 | `dataset`      | un par `resource` téléchargée                        |
@@ -258,13 +258,13 @@ non mentionnés sont laissés `null` (datannur les considère optionnels).
 | ------------------ | ----------------------------------------------- |
 | `id`               | `package.id` (UUID)                             |
 | `parent_id`        | voir 3.2                                        |
-| `owner_id`         | `package.organization.name`                     |
+| `owner_id`         | `package.organization_name`                     |
 | `manager_id`       | `null` (voir 3.5)                               |
 | `tag_ids`          | `thematique---<group>` pour chaque groupe + `keywords.fr` |
 | `name`             | `package.title.fr`                              |
 | `description`      | `package.description.fr`                        |
 | `link`             | `package.url`                                   |
-| `localisation`     | `package.organization.political_level`          |
+| `localisation`     | `organization.political_level` via `package.organization_name` |
 | `start_date`       | `package.temporals[0].start_date`               |
 | `end_date`         | `package.temporals[0].end_date`                 |
 | `last_update_date` | `package.modified`                              |
@@ -278,7 +278,7 @@ non mentionnés sont laissés `null` (datannur les considère optionnels).
 | ------------------ | ------------------------------------------------------ |
 | `id`               | `resource.id` (UUID CKAN)                              |
 | `folder_id`        | `resource.package_id` (= `package.id`)                 |
-| `owner_id`         | `package.organization.name`                            |
+| `owner_id`         | `package.organization_name`                            |
 | `manager_id`       | `null`                                                 |
 | `tag_ids`          | hérite du folder-package (optionnel, sinon null)       |
 | `name`             | `resource.title.fr` ou fallback `resource.format`      |
@@ -362,9 +362,7 @@ et vers les fichiers téléchargés :
 app_path: ./catalog
 metadata_path: ./metadata
 add:
-  - folder: ./data/parquet
-  - folder: ./data/csv
-  - folder: ./data/excel
+  - folder: ./data
 ```
 
 Exécution :

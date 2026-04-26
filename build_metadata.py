@@ -1,8 +1,8 @@
 """Build datannur metadata CSVs from CKAN crawl + manifest outputs.
 
 Reads:
-  out/{parquet,csv,excel}/datasets.jsonl   (CKAN package payloads)
-  out/{parquet,csv,excel}/manifest.jsonl   (download results)
+    staging/packages.jsonl   (CKAN package payloads)
+    staging/download_state.jsonl   (download results)
 
 Writes (in ./metadata/):
   institution.csv   — publishers + reconstructed hierarchy (Suisse → …)
@@ -29,7 +29,7 @@ from collections import defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).parent
-OUT_DIRS = {fmt: ROOT / "out" / fmt for fmt in ("parquet", "csv", "excel")}
+STAGING_DIR = ROOT / "staging"
 META_DIR = ROOT / "metadata"
 META_DIR.mkdir(exist_ok=True)
 
@@ -131,7 +131,7 @@ def slugify(s: str) -> str:
     return s.strip("-")
 
 
-def pick_fr(ml: dict | str | None, fallback_order=("fr", "de", "it", "en")) -> str:
+def pick_fr(ml: dict | str | None, fallback_order=("fr", "en", "de", "it")) -> str:
     """Return the French value from a multilingual CKAN dict, falling back
     to other languages, then to the raw string, then to empty."""
     if ml is None:
@@ -196,43 +196,74 @@ def write_csv(path: Path, columns: list[str], rows: list[dict]) -> None:
 
 
 def load_packages() -> dict[str, dict]:
-    """Return {package_id: ckan_payload} deduped across formats."""
+    """Return {package_id: ckan_payload} from the shared staging file."""
     pkgs: dict[str, dict] = {}
-    for fmt, d in OUT_DIRS.items():
-        fp = d / "datasets.jsonl"
-        if not fp.exists():
+    fp = STAGING_DIR / "packages.jsonl"
+    if not fp.exists():
+        return pkgs
+    for line in fp.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
             continue
-        for line in fp.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            p = json.loads(line)
-            # Keep first occurrence (metadata is identical across formats)
-            pkgs.setdefault(p["id"], p)
+        p = json.loads(line)
+        pid = p.get("id")
+        if pid:
+            pkgs[pid] = p
     return pkgs
+
+
+def load_organizations() -> dict[str, dict]:
+    """Return {organization_name: organization_payload} from staging."""
+    out: dict[str, dict] = {}
+    fp = STAGING_DIR / "organizations.jsonl"
+    if not fp.exists():
+        return out
+    for line in fp.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        org = json.loads(line)
+        name = org.get("name")
+        if name:
+            out[name] = org
+    return out
+
+
+def load_resources() -> dict[str, dict]:
+    """Return {resource_id: resource_payload} from the shared staging file."""
+    out: dict[str, dict] = {}
+    fp = STAGING_DIR / "resources.jsonl"
+    if not fp.exists():
+        return out
+    for line in fp.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        resource = json.loads(line)
+        rid = resource.get("resource_id")
+        if rid:
+            out[rid] = resource
+    return out
 
 
 def load_manifests() -> dict[str, dict]:
     """Return {resource_id: manifest_entry} for successfully downloaded files only."""
     out: dict[str, dict] = {}
-    for fmt, d in OUT_DIRS.items():
-        fp = d / "manifest.jsonl"
-        if not fp.exists():
+    fp = STAGING_DIR / "download_state.jsonl"
+    if not fp.exists():
+        return out
+    for line in fp.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
             continue
-        for line in fp.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            m = json.loads(line)
-            # "ok" = just downloaded ; "skipped" = already present (idempotent rerun).
-            # Both have a valid local_path and are successes.
-            if m.get("download_status") not in {"ok", "skipped"}:
-                continue
-            lp = m.get("local_path")
-            if not lp:
-                continue
-            # Defensive: ensure the file actually exists (manifest may be stale)
-            if not (ROOT / lp).exists() and not Path(lp).exists():
-                continue
-            out[m["resource_id"]] = m
+        m = json.loads(line)
+        # "ok" = just downloaded ; "skipped" = already present (idempotent rerun).
+        # Both have a valid local_path and are successes.
+        if m.get("download_status") not in {"ok", "skipped"}:
+            continue
+        lp = m.get("local_path")
+        if not lp:
+            continue
+        # Defensive: ensure the file actually exists (manifest may be stale)
+        if not (ROOT / lp).exists() and not Path(lp).exists():
+            continue
+        out[m["resource_id"]] = m
     return out
 
 
@@ -250,19 +281,18 @@ def load_excluded_ids() -> set[str]:
     return ids
 
 
+def package_organization(package: dict, organizations: dict[str, dict]) -> dict:
+    org_name = package.get("organization_name")
+    return organizations.get(org_name or "", {})
+
+
 # =============================================================================
 # Build entities
 # =============================================================================
 
 
-def build_institutions(packages: dict[str, dict]) -> list[dict]:
+def build_institutions(organizations: dict[str, dict]) -> list[dict]:
     """Collect unique CKAN orgs + add virtual conteneurs. Return institution rows."""
-    orgs: dict[str, dict] = {}  # id → raw CKAN org payload
-    for p in packages.values():
-        o = p.get("organization") or {}
-        if not o or not o.get("name"):
-            continue
-        orgs.setdefault(o["name"], o)
 
     # Resolve parent for each real org
     def resolve_parent(org_name: str, org: dict) -> str | None:
@@ -313,8 +343,8 @@ def build_institutions(packages: dict[str, dict]) -> list[dict]:
         )
 
     # 2. Real CKAN organisations
-    for name in sorted(orgs):
-        o = orgs[name]
+    for name in sorted(organizations):
+        o = organizations[name]
         rows.append(
             {
                 "id": name,
@@ -345,6 +375,7 @@ def pick_thematic_root(groups: list[dict]) -> str:
 
 def build_folders_and_docs(
     packages: dict[str, dict],
+    organizations: dict[str, dict],
 ) -> tuple[list[dict], list[dict], dict[str, str]]:
     """Return (folder_rows, doc_rows, package_id → folder_id_used).
 
@@ -391,7 +422,7 @@ def build_folders_and_docs(
     for pid, p in sorted(packages.items()):
         groups = p.get("groups") or []
         parent = pick_thematic_root(groups)
-        org = p.get("organization") or {}
+        org = package_organization(p, organizations)
         org_name = org.get("name")
         level = org.get("political_level")
 
@@ -448,33 +479,32 @@ def build_folders_and_docs(
     return folder_rows, doc_rows, {}
 
 
-def build_datasets(packages: dict[str, dict], manifests: dict[str, dict]) -> list[dict]:
+def build_datasets(
+    packages: dict[str, dict],
+    resources: dict[str, dict],
+    manifests: dict[str, dict],
+    organizations: dict[str, dict],
+) -> list[dict]:
     """One row per successfully downloaded resource."""
-    # Index resources inside each package for quick access
-    pkg_resources: dict[str, list[dict]] = defaultdict(list)
-    for p in packages.values():
-        for r in p.get("resources") or []:
-            pkg_resources[p["id"]].append(r)
-
     rows: list[dict] = []
     for rid, m in sorted(manifests.items()):
-        pid = m.get("dataset_id") or ""
+        res = resources.get(rid)
+        if res is None:
+            continue
+
+        pid = res.get("package_id") or ""
         p = packages.get(pid)
         if p is None:
             continue  # resource belonged to a package we don't have (shouldn't happen)
-        # Find the resource in the package (for freshest metadata)
-        res = next((r for r in pkg_resources.get(pid, []) if r.get("id") == rid), None)
-        if res is None:
-            res = {}
 
-        org = p.get("organization") or {}
+        org = package_organization(p, organizations)
         level = org.get("political_level")
         temporals = p.get("temporals") or []
         start_date = temporals[0].get("start_date") if temporals else None
         end_date = temporals[0].get("end_date") if temporals else None
         accrual_uri = p.get("accrual_periodicity") or ""
 
-        fmt_value = (res.get("format") or m.get("format") or "").upper()
+        fmt_value = (res.get("format") or "").upper()
         name_fr = (
             pick_fr(res.get("title")) or pick_fr(res.get("name")) or fmt_value or rid
         )
@@ -515,7 +545,7 @@ def build_datasets(packages: dict[str, dict], manifests: dict[str, dict]) -> lis
                 "name": name_fr,
                 "description": description,
                 "data_path": local_path,
-                "link": res.get("url") or m.get("url"),
+                "link": res.get("url"),
                 "delivery_format": fmt_lower or None,
                 "type": "resource",
                 "localisation": POLITICAL_LEVEL_FR.get(level) if level else None,
@@ -726,6 +756,12 @@ def main() -> int:
     print("Loading CKAN packages…")
     packages = load_packages()
     print(f"  {len(packages)} unique packages")
+    print("Loading CKAN resources…")
+    resources = load_resources()
+    print(f"  {len(resources)} unique resources")
+    print("Loading CKAN organizations…")
+    organizations = load_organizations()
+    print(f"  {len(organizations)} unique organizations")
     print("Loading manifests…")
     manifests = load_manifests()
     print(f"  {len(manifests)} successfully downloaded resources")
@@ -740,9 +776,9 @@ def main() -> int:
         )
 
     print("\nBuilding entities…")
-    institutions = build_institutions(packages)
-    folders, docs, _ = build_folders_and_docs(packages)
-    datasets = build_datasets(packages, manifests)
+    institutions = build_institutions(organizations)
+    folders, docs, _ = build_folders_and_docs(packages, organizations)
+    datasets = build_datasets(packages, resources, manifests, organizations)
     tags = build_tags(packages)
 
     # Cascade purge: drop folders without surviving descendants, then orphan

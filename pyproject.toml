@@ -20,6 +20,7 @@ typeCheckingMode = "standard"
 exclude = [
   "catalog/",
   "out/",
+  "staging/",
   "_preview.py",
   "**/__pycache__",
   ".venv",
@@ -30,6 +31,7 @@ target-version = "py314"
 exclude = [
   "catalog/",
   "out/",
+  "staging/",
   "_preview.py",
 ]
 

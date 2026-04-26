@@ -11,7 +11,7 @@ ROOT = Path(__file__).parent
 
 @dataclass(frozen=True)
 class FormatConfig:
-    key: str  # folder name: "parquet", "csv", "excel"
+    key: str  # format key: "parquet", "csv", "excel"
     ckan_res_format: str  # Solr value: "PARQUET", "CSV", "XLS"
     file_ext: str  # default extension; may be overridden per-file
     # For download-time validation. Lowercased substrings.
@@ -91,26 +91,22 @@ FORMATS: dict[str, FormatConfig] = {
 }
 
 
-def parse_format_arg() -> FormatConfig:
-    ap = argparse.ArgumentParser()
-    ap.add_argument(
-        "--format",
-        "-f",
-        choices=sorted(FORMATS),
-        default="parquet",
-        help="Format to process",
-    )
-    args, _ = ap.parse_known_args()
-    return FORMATS[args.format]
+def iter_formats() -> tuple[FormatConfig, ...]:
+    return tuple(FORMATS[key] for key in sorted(FORMATS))
 
 
-def out_dir(fmt: FormatConfig) -> Path:
-    p = ROOT / "out" / fmt.key
+def parse_noop_args(description: str) -> None:
+    ap = argparse.ArgumentParser(description=description)
+    ap.parse_args()
+
+
+def staging_dir() -> Path:
+    p = ROOT / "staging"
     p.mkdir(parents=True, exist_ok=True)
     return p
 
 
 def data_dir(fmt: FormatConfig) -> Path:
-    p = ROOT / "data" / fmt.key
+    p = ROOT / "data"
     p.mkdir(parents=True, exist_ok=True)
     return p

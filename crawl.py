@@ -1,10 +1,13 @@
 """
-Crawl opendata.swiss for French-language datasets exposing resources of a
-chosen format.
+Crawl opendata.swiss for French-language datasets exposing the configured
+resource formats.
+
+Outputs are appended to the shared staging directory. Packages are deduped by
+package id; resources stay one line per CKAN resource and carry their format in
+the payload.
 
 Usage:
-    uv run python crawl.py --format parquet
-    uv run python crawl.py --format csv
+    uv run python crawl.py
 """
 
 from __future__ import annotations
@@ -12,17 +15,35 @@ from __future__ import annotations
 import json
 import sys
 import time
+from pathlib import Path
 from typing import Any, Iterator
 
 from ckanapi import RemoteCKAN
 from ckanapi.errors import CKANAPIError
 
-from config import out_dir, parse_format_arg
+from config import iter_formats, parse_noop_args, staging_dir
 
 CKAN_URL = "https://ckan.opendata.swiss"
 USER_AGENT = "datannur-opench-crawler/0.1 (+https://github.com/datannur)"
 PAGE_SIZE = 500
 LANGUAGE = "fr"
+TEXT_FALLBACK_ORDER = ("fr", "en", "de", "it")
+
+
+def pick_localized_text(
+    value: dict[str, Any] | str | None,
+    fallback_order: tuple[str, ...] = TEXT_FALLBACK_ORDER,
+) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value or None
+    if isinstance(value, dict):
+        for lang in fallback_order:
+            text = value.get(lang)
+            if isinstance(text, str) and text:
+                return text
+    return None
 
 
 def iter_packages(ckan: RemoteCKAN, fq: str) -> Iterator[dict[str, Any]]:
@@ -58,41 +79,135 @@ def iter_packages(ckan: RemoteCKAN, fq: str) -> Iterator[dict[str, Any]]:
             return
 
 
-def extract_resources(pkg: dict[str, Any], res_format: str) -> list[dict[str, Any]]:
+def extract_resources(
+    pkg: dict[str, Any], format_map: dict[str, str]
+) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for res in pkg.get("resources", []) or []:
-        fmt = (res.get("format") or "").strip().upper()
-        if fmt != res_format:
+        res_format = (res.get("format") or "").strip().upper()
+        format_key = format_map.get(res_format)
+        if format_key is None:
             continue
         url = res.get("download_url") or res.get("url") or ""
         out.append(
             {
-                "dataset_id": pkg.get("id"),
-                "dataset_name": pkg.get("name"),
-                "organization": (pkg.get("organization") or {}).get("name"),
-                "dataset_title": pkg.get("title"),
+                "format_key": format_key,
+                "package_id": pkg.get("id"),
                 "resource_id": res.get("id"),
-                "resource_name": res.get("name"),
+                "name": pick_localized_text(res.get("name")),
+                "title": pick_localized_text(res.get("title")),
+                "description": pick_localized_text(res.get("description")),
                 "format": res.get("format"),
-                "media_type": res.get("media_type") or res.get("mimetype"),
                 "url": url,
-                "rights": res.get("rights"),
-                "byte_size": res.get("byte_size") or res.get("size"),
-                "issued": res.get("issued"),
                 "modified": res.get("modified"),
             }
         )
     return out
 
 
+def project_organization(org: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "name": org.get("name"),
+        "title": pick_localized_text(org.get("title")),
+        "display_name": pick_localized_text(org.get("display_name")),
+        "description": pick_localized_text(org.get("description")),
+        "political_level": org.get("political_level"),
+        "groups": [
+            {"name": group.get("name")}
+            for group in (org.get("groups") or [])
+            if group.get("name")
+        ],
+    }
+
+
+def project_package(pkg: dict[str, Any]) -> dict[str, Any]:
+    org = pkg.get("organization") or {}
+
+    return {
+        "id": pkg.get("id"),
+        "name": pkg.get("name"),
+        "title": pick_localized_text(pkg.get("title")),
+        "description": pick_localized_text(pkg.get("description")),
+        "url": pkg.get("url"),
+        "modified": pkg.get("modified"),
+        "metadata_modified": pkg.get("metadata_modified"),
+        "accrual_periodicity": pkg.get("accrual_periodicity"),
+        "keywords": {"fr": ((pkg.get("keywords") or {}).get("fr") or [])},
+        "temporals": [
+            {
+                "start_date": temporal.get("start_date"),
+                "end_date": temporal.get("end_date"),
+            }
+            for temporal in (pkg.get("temporals") or [])
+        ],
+        "groups": [
+            {"name": group.get("name")}
+            for group in (pkg.get("groups") or [])
+            if group.get("name")
+        ],
+        "organization_name": org.get("name"),
+    }
+
+
+def load_jsonl_by_key(path: Path, key: str) -> dict[str, dict[str, Any]]:
+    if not path.exists():
+        return {}
+    rows: dict[str, dict[str, Any]] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        row_key = row.get(key)
+        if row_key:
+            rows[row_key] = row
+    return rows
+
+
+def load_packages_by_id(
+    primary_path: Path, legacy_path: Path
+) -> dict[str, dict[str, Any]]:
+    if primary_path.exists():
+        return load_jsonl_by_key(primary_path, "id")
+    return load_jsonl_by_key(legacy_path, "id")
+
+
+def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
+    with path.open("w", encoding="utf-8") as fh:
+        for row in rows:
+            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def load_summary(path: Path) -> dict[str, dict[str, Any]]:
+    if not path.exists():
+        return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        return {}
+    by_format = (
+        data.get("by_format") if isinstance(data.get("by_format"), dict) else data
+    )
+    if not isinstance(by_format, dict):
+        return {}
+    return {
+        str(key): value for key, value in by_format.items() if isinstance(value, dict)
+    }
+
+
 def main() -> int:
-    fmt = parse_format_arg()
-    o = out_dir(fmt)
-    datasets_file = o / "datasets.jsonl"
+    parse_noop_args("Crawl opendata.swiss for all configured resource formats.")
+    o = staging_dir()
+    organizations_file = o / "organizations.jsonl"
+    packages_file = o / "packages.jsonl"
     resources_file = o / "resources.jsonl"
     summary_file = o / "crawl_summary.json"
 
-    fq = f"language:{LANGUAGE} AND res_format:{fmt.ckan_res_format}"
+    formats = iter_formats()
+    format_map = {fmt.ckan_res_format: fmt.key for fmt in formats}
+    counts_by_format = {
+        fmt.key: {"datasets_with_resources": 0, "resources": 0} for fmt in formats
+    }
+
+    fq = f"language:{LANGUAGE}"
     ckan = RemoteCKAN(CKAN_URL, user_agent=USER_AGENT)
 
     n_datasets = 0
@@ -102,37 +217,69 @@ def main() -> int:
     print(f"Crawling {CKAN_URL} with fq='{fq}' ...")
     t0 = time.monotonic()
 
-    with (
-        datasets_file.open("w", encoding="utf-8") as fds,
-        resources_file.open("w", encoding="utf-8") as frs,
-    ):
-        for pkg in iter_packages(ckan, fq):
-            n_datasets += 1
-            resources = extract_resources(pkg, fmt.ckan_res_format)
-            if not resources:
-                continue
-            n_datasets_matching += 1
-            n_resources += len(resources)
+    staged_organizations: dict[str, dict[str, Any]] = {}
+    staged_packages: dict[str, dict[str, Any]] = {}
+    staged_resources: dict[str, dict[str, Any]] = {}
 
-            fds.write(json.dumps(pkg, ensure_ascii=False) + "\n")
-            for r in resources:
-                frs.write(json.dumps(r, ensure_ascii=False) + "\n")
+    for pkg in iter_packages(ckan, fq):
+        n_datasets += 1
+        resources = extract_resources(pkg, format_map)
+        if not resources:
+            continue
+        n_datasets_matching += 1
+        n_resources += len(resources)
 
-            if n_datasets_matching % 25 == 0:
-                print(
-                    f"  scanned={n_datasets} matching={n_datasets_matching} "
-                    f"resources={n_resources}"
-                )
+        seen_formats = {resource["format_key"] for resource in resources}
+        for format_key in seen_formats:
+            counts_by_format[format_key]["datasets_with_resources"] += 1
+        for resource in resources:
+            counts_by_format[resource["format_key"]]["resources"] += 1
+
+        org = pkg.get("organization") or {}
+        org_name = org.get("name")
+        if org_name:
+            staged_organizations[org_name] = project_organization(org)
+        staged_packages[pkg["id"]] = project_package(pkg)
+        for resource in resources:
+            staged_resources[resource["resource_id"]] = resource
+
+        if n_datasets_matching % 25 == 0:
+            print(
+                f"  scanned={n_datasets} matching={n_datasets_matching} "
+                f"resources={n_resources}"
+            )
+
+    write_jsonl(
+        organizations_file,
+        sorted(staged_organizations.values(), key=lambda row: row["name"]),
+    )
+    write_jsonl(
+        packages_file, sorted(staged_packages.values(), key=lambda row: row["id"])
+    )
+    write_jsonl(
+        resources_file,
+        sorted(staged_resources.values(), key=lambda row: row["resource_id"]),
+    )
 
     elapsed = time.monotonic() - t0
+    by_format = load_summary(summary_file)
+    for fmt in formats:
+        by_format[fmt.key] = {
+            "format_key": fmt.key,
+            "res_format": fmt.ckan_res_format,
+            "datasets_with_resources": counts_by_format[fmt.key][
+                "datasets_with_resources"
+            ],
+            "resources": counts_by_format[fmt.key]["resources"],
+        }
     summary = {
         "ckan_url": CKAN_URL,
         "fq": fq,
-        "res_format": fmt.ckan_res_format,
         "datasets_scanned": n_datasets,
         "datasets_with_resources": n_datasets_matching,
         "resources": n_resources,
         "elapsed_seconds": round(elapsed, 1),
+        "by_format": by_format,
     }
     summary_file.write_text(
         json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
