@@ -1,9 +1,9 @@
 app_path: ./catalog
 metadata_path: ./metadata
-depth: variable
+depth: stat
 refresh: true
 open_browser: true
-log_file: ./out/datannurpy.log
+log_file: ./datannurpy.log
 
 add:
   - folder: ./data
