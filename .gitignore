@@ -8,3 +8,4 @@ data/
 metadata/
 catalog/
 excluded_datasets.csv
+*.log
