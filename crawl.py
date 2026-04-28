@@ -13,6 +13,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -28,6 +29,7 @@ USER_AGENT = "datannur-opench-crawler/0.1 (+https://github.com/datannur)"
 PAGE_SIZE = 500
 LANGUAGE = "fr"
 TEXT_FALLBACK_ORDER = ("fr", "en", "de", "it")
+URL_RE = re.compile(r'https?://[^\s<>"\']+')
 
 
 def pick_localized_text(
@@ -44,6 +46,34 @@ def pick_localized_text(
             if isinstance(text, str) and text:
                 return text
     return None
+
+
+def extract_urls(value: Any) -> list[str]:
+    """Collect URLs found anywhere in a nested CKAN field."""
+    seen: set[str] = set()
+    out: list[str] = []
+
+    def visit(node: Any) -> None:
+        if node is None:
+            return
+        if isinstance(node, str):
+            for match in URL_RE.findall(node):
+                url = match.rstrip(").,;]>")
+                if url in seen:
+                    continue
+                seen.add(url)
+                out.append(url)
+            return
+        if isinstance(node, dict):
+            for child in node.values():
+                visit(child)
+            return
+        if isinstance(node, list):
+            for child in node:
+                visit(child)
+
+    visit(value)
+    return out
 
 
 def iter_packages(ckan: RemoteCKAN, fq: str) -> Iterator[dict[str, Any]]:
@@ -99,6 +129,8 @@ def extract_resources(
                 "description": pick_localized_text(res.get("description")),
                 "format": res.get("format"),
                 "url": url,
+                "documentation_urls": extract_urls(res.get("documentation")),
+                "relation_urls": extract_urls(res.get("relations")),
                 "modified": res.get("modified"),
             }
         )
@@ -129,6 +161,8 @@ def project_package(pkg: dict[str, Any]) -> dict[str, Any]:
         "title": pick_localized_text(pkg.get("title")),
         "description": pick_localized_text(pkg.get("description")),
         "url": pkg.get("url"),
+        "documentation_urls": extract_urls(pkg.get("documentation")),
+        "relation_urls": extract_urls(pkg.get("relations")),
         "modified": pkg.get("modified"),
         "metadata_modified": pkg.get("metadata_modified"),
         "accrual_periodicity": pkg.get("accrual_periodicity"),
@@ -204,14 +238,14 @@ def main() -> int:
     formats = iter_formats()
     format_map = {fmt.ckan_res_format: fmt.key for fmt in formats}
     counts_by_format = {
-        fmt.key: {"datasets_with_resources": 0, "resources": 0} for fmt in formats
+        fmt.key: {"packages_with_resources": 0, "resources": 0} for fmt in formats
     }
 
     fq = f"language:{LANGUAGE}"
     ckan = RemoteCKAN(CKAN_URL, user_agent=USER_AGENT)
 
-    n_datasets = 0
-    n_datasets_matching = 0
+    n_packages = 0
+    n_packages_matching = 0
     n_resources = 0
 
     print(f"Crawling {CKAN_URL} with fq='{fq}' ...")
@@ -222,16 +256,16 @@ def main() -> int:
     staged_resources: dict[str, dict[str, Any]] = {}
 
     for pkg in iter_packages(ckan, fq):
-        n_datasets += 1
+        n_packages += 1
         resources = extract_resources(pkg, format_map)
         if not resources:
             continue
-        n_datasets_matching += 1
+        n_packages_matching += 1
         n_resources += len(resources)
 
         seen_formats = {resource["format_key"] for resource in resources}
         for format_key in seen_formats:
-            counts_by_format[format_key]["datasets_with_resources"] += 1
+            counts_by_format[format_key]["packages_with_resources"] += 1
         for resource in resources:
             counts_by_format[resource["format_key"]]["resources"] += 1
 
@@ -243,9 +277,9 @@ def main() -> int:
         for resource in resources:
             staged_resources[resource["resource_id"]] = resource
 
-        if n_datasets_matching % 25 == 0:
+        if n_packages_matching % 25 == 0:
             print(
-                f"  scanned={n_datasets} matching={n_datasets_matching} "
+                f"  scanned={n_packages} matching={n_packages_matching} "
                 f"resources={n_resources}"
             )
 
@@ -267,16 +301,16 @@ def main() -> int:
         by_format[fmt.key] = {
             "format_key": fmt.key,
             "res_format": fmt.ckan_res_format,
-            "datasets_with_resources": counts_by_format[fmt.key][
-                "datasets_with_resources"
+            "packages_with_resources": counts_by_format[fmt.key][
+                "packages_with_resources"
             ],
             "resources": counts_by_format[fmt.key]["resources"],
         }
     summary = {
         "ckan_url": CKAN_URL,
         "fq": fq,
-        "datasets_scanned": n_datasets,
-        "datasets_with_resources": n_datasets_matching,
+        "packages_scanned": n_packages,
+        "packages_with_resources": n_packages_matching,
         "resources": n_resources,
         "elapsed_seconds": round(elapsed, 1),
         "by_format": by_format,

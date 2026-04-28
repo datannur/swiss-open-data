@@ -9,7 +9,7 @@ Writes (in ./metadata/):
   folder.csv        — 14 thematic roots + one folder per CKAN package
   dataset.csv       — one row per successfully downloaded resource
   tag.csv           — thematic tags + free CKAN keywords
-  doc.csv           — one "opendata.swiss page" entry per package
+    doc.csv           — PDF documentation URLs attached to folders/datasets
 
 Decisions documented in MAPPING.md.
 
@@ -26,7 +26,13 @@ import json
 import re
 import sys
 from collections import defaultdict
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
+from typing import Any
+
+from config import doc_manifest_path
+from doc_utils import extract_pdf_urls, pdf_doc_id, pdf_doc_name
 
 ROOT = Path(__file__).parent
 STAGING_DIR = ROOT / "staging"
@@ -119,8 +125,6 @@ POLITICAL_LEVEL_FR: dict[str, str] = {
 # =============================================================================
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
-
-
 def slugify(s: str) -> str:
     """Produce a safe tag id: lowercase, [a-z0-9_-] only."""
     if not s:
@@ -157,6 +161,96 @@ def join_ids(ids) -> str:
         seen.add(i)
         out.append(i)
     return ", ".join(out)
+
+
+def normalize_unix_timestamp(value: str | int | float | None) -> int | None:
+    """Return a Unix timestamp in seconds when the input is parseable."""
+    if value in (None, ""):
+        return None
+    if isinstance(value, (int, float)):
+        return int(value)
+
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.isdigit():
+        return int(text)
+
+    try:
+        dt = parsedate_to_datetime(text)
+    except (TypeError, ValueError, IndexError, OverflowError):
+        dt = None
+
+    if dt is None:
+        iso_text = text.replace("Z", "+00:00")
+        try:
+            dt = datetime.fromisoformat(iso_text)
+        except ValueError:
+            return None
+
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    return int(dt.timestamp())
+
+
+def build_pdf_docs(
+    doc_registry: dict[str, dict],
+    doc_downloads: dict[str, dict],
+    owner_name: str,
+    updated_at: str | None,
+    *texts: Any,
+) -> tuple[str | None, set[str]]:
+    """Register PDFs globally and return joined doc_ids plus referenced paths."""
+
+    def build_pdf_doc_description(
+        source_url: str,
+        localized_path: str | None,
+    ) -> str | None:
+        if not localized_path:
+            return None
+
+        return f"Source originale: {source_url}"
+
+    urls = extract_pdf_urls(*texts)
+    if not urls:
+        return None, set()
+
+    doc_ids: list[str] = []
+    doc_paths: set[str] = set()
+    for url in urls:
+        doc_paths.add(url)
+        download = doc_downloads.get(url, {})
+        export_path = download.get("export_path")
+        source_last_update = normalize_unix_timestamp(
+            download.get("last_modified") or updated_at
+        )
+        row = doc_registry.get(url)
+        if row is None:
+            row = {
+                "id": pdf_doc_id(url),
+                "name": pdf_doc_name(url, owner_name),
+                "description": build_pdf_doc_description(
+                    url,
+                    export_path,
+                ),
+                "path": export_path or url,
+                "type": "pdf",
+                "last_update": source_last_update,
+            }
+            doc_registry[url] = row
+        else:
+            if export_path:
+                row["path"] = export_path
+                row["description"] = build_pdf_doc_description(
+                    url,
+                    export_path,
+                )
+            if not row.get("last_update") and source_last_update:
+                row["last_update"] = source_last_update
+        doc_ids.append(row["id"])
+    return join_ids(doc_ids) or None, doc_paths
 
 
 def write_csv(path: Path, columns: list[str], rows: list[dict]) -> None:
@@ -264,6 +358,28 @@ def load_manifests() -> dict[str, dict]:
         if not (ROOT / lp).exists() and not Path(lp).exists():
             continue
         out[m["resource_id"]] = m
+    return out
+
+
+def load_doc_downloads() -> dict[str, dict]:
+    """Return {source_url: manifest_entry} for successfully cached PDFs."""
+    out: dict[str, dict] = {}
+    fp = doc_manifest_path()
+    if not fp.exists():
+        return out
+    for line in fp.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        entry = json.loads(line)
+        if entry.get("download_status") not in {"ok", "skipped"}:
+            continue
+        source_url = entry.get("source_url")
+        local_path = entry.get("local_path")
+        if not source_url or not local_path:
+            continue
+        if not (ROOT / local_path).exists() and not Path(local_path).exists():
+            continue
+        out[source_url] = entry
     return out
 
 
@@ -376,14 +492,16 @@ def pick_thematic_root(groups: list[dict]) -> str:
 def build_folders_and_docs(
     packages: dict[str, dict],
     organizations: dict[str, dict],
-) -> tuple[list[dict], list[dict], dict[str, str]]:
-    """Return (folder_rows, doc_rows, package_id → folder_id_used).
+    doc_registry: dict[str, dict],
+    doc_downloads: dict[str, dict],
+) -> list[dict]:
+    """Return folder rows while registering shared PDF docs globally.
 
-    A doc is created for every package pointing to its opendata.swiss page
-    (or a fallback to the CKAN API URI), and attached via folder.doc_ids.
+    Package URLs are exposed directly on folder.link. PDF documents visible on
+    the package itself, in its description, or in staged documentation/
+    relations fields feed doc rows when present.
     """
     folder_rows: list[dict] = []
-    doc_rows: list[dict] = []
 
     # 1. Thematic roots
     for tid, tname in DCAT_GROUPS_FR.items():
@@ -398,6 +516,7 @@ def build_folders_and_docs(
                 "manager_id": None,
                 "tag_ids": None,
                 "doc_ids": None,
+                "link": None,
                 "data_path": None,
                 "delivery_format": None,
                 "last_update_date": None,
@@ -415,6 +534,7 @@ def build_folders_and_docs(
                 "name": tname,
                 "description": None,
                 "type": "thematique",
+                "link": None,
             }
         )
 
@@ -425,6 +545,8 @@ def build_folders_and_docs(
         org = package_organization(p, organizations)
         org_name = org.get("name")
         level = org.get("political_level")
+        title = pick_fr(p.get("title")) or p.get("name") or pid
+        description = pick_fr(p.get("description"))
 
         # Tags: one per group + free keywords (FR)
         thematic_tags = [f"thematique---{g['name']}" for g in groups if g.get("name")]
@@ -435,35 +557,30 @@ def build_folders_and_docs(
         temporals = p.get("temporals") or []
         start_date = temporals[0].get("start_date") if temporals else None
         end_date = temporals[0].get("end_date") if temporals else None
-
-        # Doc: opendata.swiss page
-        doc_url = p.get("url") or ""
-        doc_id = None
-        if doc_url:
-            doc_id = f"doc---{pid}"
-            doc_rows.append(
-                {
-                    "id": doc_id,
-                    "name": f"Fiche opendata.swiss — {pick_fr(p.get('title')) or p.get('name') or pid}",
-                    "description": None,
-                    "path": doc_url,
-                    "type": "url",
-                    "last_update": p.get("metadata_modified"),
-                }
-            )
+        folder_doc_ids, _ = build_pdf_docs(
+            doc_registry,
+            doc_downloads,
+            title,
+            p.get("modified") or p.get("metadata_modified"),
+            p.get("url"),
+            description,
+            p.get("documentation_urls"),
+            p.get("relation_urls"),
+        )
 
         accrual_uri = p.get("accrual_periodicity") or ""
         folder_rows.append(
             {
                 "id": pid,
                 "parent_id": parent,
-                "name": pick_fr(p.get("title")) or p.get("name") or pid,
-                "description": pick_fr(p.get("description")),
+                "name": title,
+                "description": description,
                 "type": "package",
                 "owner_id": org_name,
                 "manager_id": None,
                 "tag_ids": tag_ids or None,
-                "doc_ids": doc_id,
+                "doc_ids": folder_doc_ids,
+                "link": p.get("url"),
                 "data_path": None,
                 "delivery_format": None,
                 "last_update_date": p.get("modified") or p.get("metadata_modified"),
@@ -476,7 +593,7 @@ def build_folders_and_docs(
             }
         )
 
-    return folder_rows, doc_rows, {}
+    return folder_rows
 
 
 def build_datasets(
@@ -484,8 +601,10 @@ def build_datasets(
     resources: dict[str, dict],
     manifests: dict[str, dict],
     organizations: dict[str, dict],
+    doc_registry: dict[str, dict],
+    doc_downloads: dict[str, dict],
 ) -> list[dict]:
-    """One row per successfully downloaded resource."""
+    """Return dataset rows while registering shared PDF docs globally."""
     rows: list[dict] = []
     for rid, m in sorted(manifests.items()):
         res = resources.get(rid)
@@ -512,7 +631,18 @@ def build_datasets(
         pkg_title = pick_fr(p.get("title")) or p.get("name") or pid
         if name_fr.strip().lower() in {"csv", "parquet", "xls", "xlsx", "excel", ""}:
             name_fr = f"{pkg_title} — {fmt_value}"
-        description = pick_fr(res.get("description")) or pick_fr(p.get("description"))
+        resource_description = pick_fr(res.get("description"))
+        description = resource_description or pick_fr(p.get("description"))
+        dataset_doc_ids, _ = build_pdf_docs(
+            doc_registry,
+            doc_downloads,
+            name_fr,
+            res.get("modified") or res.get("last_modified") or m.get("modified"),
+            res.get("url"),
+            resource_description,
+            res.get("documentation_urls"),
+            res.get("relation_urls"),
+        )
 
         local_path = m.get("local_path") or ""
         # Derive delivery_format from the actual local extension when available
@@ -541,7 +671,7 @@ def build_datasets(
                 "owner_id": org.get("name"),
                 "manager_id": None,
                 "tag_ids": None,
-                "doc_ids": None,
+                "doc_ids": dataset_doc_ids,
                 "name": name_fr,
                 "description": description,
                 "data_path": local_path,
@@ -634,6 +764,7 @@ FOLDER_COLS = [
     "doc_ids",
     "name",
     "description",
+    "link",
     "data_path",
     "delivery_format",
     "type",
@@ -765,6 +896,9 @@ def main() -> int:
     print("Loading manifests…")
     manifests = load_manifests()
     print(f"  {len(manifests)} successfully downloaded resources")
+    print("Loading doc downloads…")
+    doc_downloads = load_doc_downloads()
+    print(f"  {len(doc_downloads)} successfully downloaded docs")
 
     excluded = load_excluded_ids()
     if excluded:
@@ -776,9 +910,23 @@ def main() -> int:
         )
 
     print("\nBuilding entities…")
+    doc_registry: dict[str, dict] = {}
     institutions = build_institutions(organizations)
-    folders, docs, _ = build_folders_and_docs(packages, organizations)
-    datasets = build_datasets(packages, resources, manifests, organizations)
+    folders = build_folders_and_docs(
+        packages,
+        organizations,
+        doc_registry,
+        doc_downloads,
+    )
+    datasets = build_datasets(
+        packages,
+        resources,
+        manifests,
+        organizations,
+        doc_registry,
+        doc_downloads,
+    )
+    docs = list(doc_registry.values())
     tags = build_tags(packages)
 
     # Cascade purge: drop folders without surviving descendants, then orphan

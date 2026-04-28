@@ -4,7 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
     "ckanapi>=4.11",
-    "datannurpy==0.20.0",
+    "datannurpy==0.21.0",
     "requests>=2.33.1",
 ]
 

@@ -122,6 +122,7 @@ Si `staging/` et `data/` sont déjà remplis, il suffit souvent de relancer:
 
 ```bash
 uv run python build_metadata.py
+uv run python -m datannurpy catalog.yml
 ```
 
 ## Vérifications

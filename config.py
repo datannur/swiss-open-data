@@ -106,6 +106,20 @@ def staging_dir() -> Path:
     return p
 
 
+def doc_cache_dir() -> Path:
+    p = staging_dir() / "docs"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def doc_manifest_path() -> Path:
+    return staging_dir() / "doc_download_state.jsonl"
+
+
+def exported_doc_rel_path(doc_id: str) -> Path:
+    return Path("data") / "doc" / f"{doc_id}.pdf"
+
+
 def data_dir(fmt: FormatConfig) -> Path:
     p = ROOT / "data"
     p.mkdir(parents=True, exist_ok=True)

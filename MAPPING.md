@@ -1,8 +1,9 @@
 # Mapping opendata.swiss (CKAN) → datannur
 
 Document de référence pour la construction du catalogue datannur à partir des
-métadonnées CKAN récupérées dans `staging/packages.jsonl` et des fichiers
-téléchargés listés dans `staging/download_state.jsonl`.
+métadonnées CKAN récupérées dans `staging/packages.jsonl`, des fichiers
+téléchargés listés dans `staging/download_state.jsonl`, et des PDFs mis en
+cache dans `staging/doc_download_state.jsonl`.
 
 Corpus cible : ressources **françaises** au format **Parquet / CSV / Excel**
 (.xls + .xlsx) d'opendata.swiss.
@@ -70,6 +71,7 @@ package.
 | `folder` (package)           | un par `package` (enfant d'une racine)    |
 | `dataset`      | un par `resource` téléchargée                        |
 | `tag`          | `package.keywords.fr` ∪ `thematique---<group>`       |
+| `doc`          | une par URL PDF unique, servie localement depuis `data/doc/` |
 
 ### 3.1 Granularité : resource = dataset
 
@@ -263,7 +265,8 @@ non mentionnés sont laissés `null` (datannur les considère optionnels).
 | `tag_ids`          | `thematique---<group>` pour chaque groupe + `keywords.fr` |
 | `name`             | `package.title.fr`                              |
 | `description`      | `package.description.fr`                        |
-| `link`             | `package.url`                                   |
+| `doc_ids`          | PDFs trouvés dans `package.url`, `package.description.fr`, `package.documentation[]` et `package.relations[]` (via staging `documentation_urls` / `relation_urls`) |
+| `link`             | `package.url` (page source CKAN / portail)      |
 | `localisation`     | `organization.political_level` via `package.organization_name` |
 | `start_date`       | `package.temporals[0].start_date`               |
 | `end_date`         | `package.temporals[0].end_date`                 |
@@ -283,6 +286,7 @@ non mentionnés sont laissés `null` (datannur les considère optionnels).
 | `tag_ids`          | hérite du folder-package (optionnel, sinon null)       |
 | `name`             | `resource.title.fr` ou fallback `resource.format`      |
 | `description`      | `resource.description.fr`                              |
+| `doc_ids`          | PDFs trouvés dans `resource.url`, `resource.description.fr`, `resource.documentation[]` et `resource.relations[]` (via staging `documentation_urls` / `relation_urls`) ; une même URL PDF réutilise le même `doc_id` global |
 | `data_path`        | `data/<fmt>/<rid>.<ext>` (chemin local réel)           |
 | `link`             | `resource.url` (URL amont opendata.swiss)              |
 | `delivery_format`  | `resource.format` (`PARQUET`, `CSV`, `XLS`, `XLSX`)    |
@@ -317,16 +321,28 @@ Tag racine `thematique` : `id = "thematique"`, `parent_id = null`, `name = "Thé
 
 ### 4.5 `doc.csv`
 
-Une entrée optionnelle par package pointant vers sa page sur le portail
-d'origine, plus les URLs listées dans `package.documentation[]` quand elles
-existent.
+Réservé aux documentations attachées au folder ou au dataset.
+
+Dans l'état actuel du pipeline opench, les documents générés automatiquement
+correspondent aux URLs PDF visibles dans les champs déjà présents en staging :
+`package.url`, `package.description.fr`, `package.documentation[]`,
+`package.relations[]`, `resource.url`, `resource.description.fr`,
+`resource.documentation[]` et `resource.relations[]`.
+
+`package.url` reste mappé vers `folder.link` même quand c'est un PDF ; dans ce
+cas il peut aussi alimenter `doc.csv`.
+
+`doc.csv` est dédupliqué globalement par URL PDF : une même URL n'apparaît
+qu'une fois dans `doc.csv`, puis plusieurs folders et datasets peuvent
+référencer cette même ligne via `doc_ids`.
 
 | Champ  | Source                            |
 | ------ | --------------------------------- |
-| `id`   | `doc---<package_id>---source`     |
-| `name` | "Fiche opendata.swiss"            |
-| `path` | `package.url`                     |
-| `type` | `"url"`                           |
+| `id`   | identifiant technique du document |
+| `name` | libellé du document               |
+| `description` | URL source d'origine quand le document est servi localement |
+| `path` | chemin local exporté sinon URL distante |
+| `type` | `"pdf"`, `"md"`, ...              |
 
 ---
 

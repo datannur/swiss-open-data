@@ -1,9 +1,15 @@
 app_path: ./catalog
 metadata_path: ./metadata
 depth: variable
-refresh: true
+refresh: false
 open_browser: true
 log_file: ./datannurpy.log
+
+copy_assets:
+  from: ./staging/docs
+  to: data/doc
+  include: "*.pdf"
+  clean: true
 
 add:
   - folder: ./data

@@ -23,21 +23,22 @@ import json
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
 from config import FormatConfig, data_dir, iter_formats, parse_noop_args, staging_dir
-
-USER_AGENT = "datannur-opench-crawler/0.1 (+https://github.com/datannur)"
-TIMEOUT = (15, 120)
-WORKERS = 6
-CHUNK = 1 << 20  # 1 MiB
-MAGIC_SNIFF_BYTES = 16
+from download_common import (
+    CHUNK,
+    MAGIC_SNIFF_BYTES,
+    TIMEOUT,
+    WORKERS,
+    DlResult,
+    human,
+    make_session,
+    utc_now,
+)
 
 EXCLUDED_CSV = Path(__file__).parent / "excluded_datasets.csv"
 
@@ -182,42 +183,6 @@ def ext_for_payload(fmt: FormatConfig, head: bytes) -> str:
         if head.startswith(magic):
             return ext
     return fmt.file_ext
-
-
-def _make_session() -> requests.Session:
-    s = requests.Session()
-    retry = Retry(
-        total=3,
-        backoff_factor=1.0,
-        status_forcelist=(500, 502, 503, 504),
-        allowed_methods=frozenset(("GET",)),
-        raise_on_status=False,
-    )
-    adapter = HTTPAdapter(
-        max_retries=retry, pool_connections=WORKERS, pool_maxsize=WORKERS
-    )
-    s.mount("http://", adapter)
-    s.mount("https://", adapter)
-    s.headers.update(
-        {
-            "User-Agent": USER_AGENT,
-            "Accept-Encoding": "identity",
-            "Connection": "close",
-        }
-    )
-    return s
-
-
-@dataclass
-class DlResult:
-    status: str
-    # "ok" | "skipped" | "http_error" | "network_error" | "size_mismatch"
-    # | "too_large" | "content_rejected"
-    downloaded_bytes: int
-    sha256: str | None
-    http_status: int | None
-    error: str | None
-    content_type: str | None = None
 
 
 def _content_type_ok(fmt: FormatConfig, ct: str | None) -> bool:
@@ -400,16 +365,6 @@ def write_manifest(manifest_file: Path, entries: list[dict[str, Any]]) -> None:
     tmp.replace(manifest_file)
 
 
-def human(n: float | None) -> str:
-    if n is None:
-        return "?"
-    for unit in ("B", "KB", "MB", "GB"):
-        if n < 1024:
-            return f"{n:.1f} {unit}"
-        n /= 1024
-    return f"{n:.1f} TB"
-
-
 def process_format(
     session: requests.Session,
     fmt: FormatConfig,
@@ -479,7 +434,7 @@ def process_format(
             error=r.error,
             response_content_type=r.content_type,
             downloaded_at=(
-                time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                utc_now()
                 if r.status == "ok"
                 else (
                     previous.get(rid, {}).get("downloaded_at")
@@ -553,7 +508,7 @@ def main() -> int:
             continue
         resources_by_format[format_key].append(resource)
 
-    session = _make_session()
+    session = make_session()
     all_manifest = load_existing_manifest(manifest_file)
     excluded_ids = load_excluded_ids()
     for fmt in iter_formats():
