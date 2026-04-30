@@ -131,6 +131,8 @@ def extract_resources(
                 "url": url,
                 "documentation_urls": extract_urls(res.get("documentation")),
                 "relation_urls": extract_urls(res.get("relations")),
+                "license": res.get("license"),
+                "rights": res.get("rights"),
                 "modified": res.get("modified"),
             }
         )
@@ -163,6 +165,10 @@ def project_package(pkg: dict[str, Any]) -> dict[str, Any]:
         "url": pkg.get("url"),
         "documentation_urls": extract_urls(pkg.get("documentation")),
         "relation_urls": extract_urls(pkg.get("relations")),
+        "spatial": pkg.get("spatial"),
+        "contact_points": pkg.get("contact_points") or [],
+        "license_id": pkg.get("license_id"),
+        "license_title": pkg.get("license_title"),
         "modified": pkg.get("modified"),
         "metadata_modified": pkg.get("metadata_modified"),
         "accrual_periodicity": pkg.get("accrual_periodicity"),

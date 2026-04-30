@@ -83,7 +83,7 @@ uv run python build_metadata.py
 
 Effet:
 
-- écrit `metadata/institution.csv`
+- écrit `metadata/organization.csv`
 - écrit `metadata/folder.csv`
 - écrit `metadata/dataset.csv`
 - écrit `metadata/tag.csv`

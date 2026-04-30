@@ -21,13 +21,13 @@ les fichiers — nous n'avons pas à les produire) :
 
 - `dataset` — la table (1 fichier = 1 dataset, sauf time-series groupées)
 - `variable` — les colonnes
-- `modality` + `value` — ensembles de valeurs catégorielles
+- `enumeration` + `value` — ensembles de valeurs catégorielles
 - `freq` — distribution de fréquence d'une variable
 
 **Extérieur du dataset** (ce que nous fournissons à `datannurpy` via
 `metadata_path`) :
 
-- `institution` — fournisseur (`owner_id`) ou gestionnaire (`manager_id`),
+- `organization` — fournisseur (`owner_id`) ou gestionnaire (`manager_id`),
   récursive
 - `folder` — arborescence éditoriale, récursive
 - `tag` — mots-clés, récursifs, liables à tout
@@ -66,7 +66,7 @@ package.
 
 | datannur       | ← CKAN                                               |
 | -------------- | ---------------------------------------------------- |
-| `institution`  | `organizations.jsonl` + `package.organization_name` (+ hiérarchie reconstruite)   |
+| `organization` | `organizations.jsonl` + `package.organization_name` (+ hiérarchie reconstruite)   |
 | `folder` (racine thématique) | un par `group` DCAT + `multi` + `other`   |
 | `folder` (package)           | un par `package` (enfant d'une racine)    |
 | `dataset`      | un par `resource` téléchargée                        |
@@ -132,6 +132,10 @@ Pour **chaque** package (y compris mono-thématique), on émet :
 
 Les tags `thematique---<group>` ont `parent_id = "thematique"` (tag racine)
 pour former une hiérarchie propre dans l'UI datannur.
+
+Les mots-clés libres sont regroupés sous un second tag racine
+`mot-cle---root` pour éviter de mélanger tags contrôlés (thématiques DCAT)
+et tags libres dans la même racine.
 
 Justification du doublon "tag + folder" sur mono-thématique : l'utilisateur
 peut alors filtrer indifféremment par tag ou naviguer par folder, et l'info
@@ -210,19 +214,23 @@ avec warning.
 
 ### 3.5 owner_id vs manager_id
 
-Dans CKAN, `organization` est à la fois le fournisseur et le gestionnaire
-(l'entité qui publie sur le portail). Aucun champ CKAN ne permet de
-distinguer les deux rôles.
+Dans CKAN, `organization` reste l'entité publiant la fiche, tandis que
+`contact_points` décrit un contact opérationnel attaché au package.
 
-**Décision : `owner_id` seul, `manager_id` laissé vide.**
+**Décision : `organization` → `owner_id`, `contact_points` → `manager_id`
+si un email stable est disponible.**
 
 - Le sens CKAN (« qui publie / partage les données ») colle mieux à
   `owner_id` (fournisseur).
-- Laisser `manager_id` vide reste honnête ; le champ peut être enrichi plus
-  tard si une info de gestion distincte apparaît.
+- `contact_points` est mappé vers `manager_id` par heuristique métier,
+  comme rôle de gestion/contact, sans prétendre que CKAN/DCAT fasse une
+  distinction formelle owner/manager.
+- Un manager n'est créé que si un email valide est présent ; la déduplication
+  se fait globalement par email.
 
 Les datasets et folders-packages reçoivent tous les deux le même
-`owner_id = organization.name`.
+`owner_id = organization.name`, et le même `manager_id` lorsqu'un contact
+point exploitable est disponible.
 
 ---
 
@@ -231,7 +239,7 @@ Les datasets et folders-packages reçoivent tous les deux le même
 Les tables ci-dessous listent tous les champs datannur peuplés. Les champs
 non mentionnés sont laissés `null` (datannur les considère optionnels).
 
-### 4.1 `institution.csv`
+### 4.1 `organization.csv`
 
 | Champ          | Source CKAN                                       | Notes                                      |
 | -------------- | ------------------------------------------------- | ------------------------------------------ |
@@ -239,7 +247,7 @@ non mentionnés sont laissés `null` (datannur les considère optionnels).
 | `parent_id`    | déduit : niveau politique + mapping hardcodé      | voir 3.4                                   |
 | `name`         | `organization.display_name.fr` (ou DE en fallback) | noms des virtuels : "Suisse", "Cantons"…  |
 | `description`  | `organization.description.fr`                     |                                            |
-| `email`        | (à partir du premier `package.contact_points[0].email` de l'org si disponible, sinon vide) | optionnel |
+| `email`        | `contact_points[].email` pour les institutions manager synthétiques | optionnel |
 | `tag_ids`      | `organization.political_level` comme tag `level---<niveau>` | optionnel |
 
 ### 4.2 `folder.csv`
@@ -261,13 +269,14 @@ non mentionnés sont laissés `null` (datannur les considère optionnels).
 | `id`               | `package.id` (UUID)                             |
 | `parent_id`        | voir 3.2                                        |
 | `owner_id`         | `package.organization_name`                     |
-| `manager_id`       | `null` (voir 3.5)                               |
+| `manager_id`       | premier `package.contact_points[].email` valide, dédupliqué en institution synthétique |
 | `tag_ids`          | `thematique---<group>` pour chaque groupe + `keywords.fr` |
 | `name`             | `package.title.fr`                              |
 | `description`      | `package.description.fr`                        |
 | `doc_ids`          | PDFs trouvés dans `package.url`, `package.description.fr`, `package.documentation[]` et `package.relations[]` (via staging `documentation_urls` / `relation_urls`) |
 | `link`             | `package.url` (page source CKAN / portail)      |
-| `localisation`     | `organization.political_level` via `package.organization_name` |
+| `license`          | `package.license_title` / `package.license_id`, sinon valeur commune des licences ressource si homogène |
+| `localisation`     | `package.spatial` si le filtre qualité l'accepte, sinon `organization.political_level` via `package.organization_name` |
 | `start_date`       | `package.temporals[0].start_date`               |
 | `end_date`         | `package.temporals[0].end_date`                 |
 | `last_update_date` | `package.modified`                              |
@@ -282,13 +291,14 @@ non mentionnés sont laissés `null` (datannur les considère optionnels).
 | `id`               | `resource.id` (UUID CKAN)                              |
 | `folder_id`        | `resource.package_id` (= `package.id`)                 |
 | `owner_id`         | `package.organization_name`                            |
-| `manager_id`       | `null`                                                 |
+| `manager_id`       | hérité du package via `contact_points[].email`         |
 | `tag_ids`          | hérite du folder-package (optionnel, sinon null)       |
 | `name`             | `resource.title.fr` ou fallback `resource.format`      |
 | `description`      | `resource.description.fr`                              |
 | `doc_ids`          | PDFs trouvés dans `resource.url`, `resource.description.fr`, `resource.documentation[]` et `resource.relations[]` (via staging `documentation_urls` / `relation_urls`) ; une même URL PDF réutilise le même `doc_id` global |
 | `data_path`        | `data/<fmt>/<rid>.<ext>` (chemin local réel)           |
 | `link`             | `resource.url` (URL amont opendata.swiss)              |
+| `license`          | `resource.license` sinon `resource.rights`             |
 | `delivery_format`  | `resource.format` (`PARQUET`, `CSV`, `XLS`, `XLSX`)    |
 | `data_size`        | `manifest.downloaded_bytes` (taille réelle fichier)    |
 | `last_update_date` | `resource.modified`                                    |
@@ -316,8 +326,11 @@ Tag racine `thematique` : `id = "thematique"`, `parent_id = null`, `name = "Thé
 | Champ       | Valeur                                        |
 | ----------- | --------------------------------------------- |
 | `id`        | slug du mot-clé                               |
-| `parent_id` | `null`                                        |
+| `parent_id` | `mot-cle---root`                              |
 | `name`      | mot-clé tel qu'écrit dans CKAN                |
+
+Tag racine libre : `id = "mot-cle---root"`, `parent_id = null`,
+`name = "Mots-cles"`.
 
 ### 4.5 `doc.csv`
 
@@ -350,7 +363,7 @@ référencer cette même ligne via `doc_ids`.
 
 | Entité      | Nombre |
 | ----------- | ------ |
-| institution | ≈ 45 (34 réelles + 11 virtuelles)  |
+| organization | ≈ 45 (34 réelles + 11 virtuelles)  |
 | folder      | ≈ 2 574 (14 racines + 2 560 packages) |
 | dataset     | ≈ 6 665 (resources téléchargées OK) |
 | tag         | ≈ 5-10k (12 thématiques + keywords dédupliqués) |
@@ -364,7 +377,7 @@ Le script `build_metadata.py` produit un dossier `metadata/` contenant :
 
 ```
 metadata/
-├── institution.csv
+├── organization.csv
 ├── folder.csv
 ├── dataset.csv
 ├── tag.csv
