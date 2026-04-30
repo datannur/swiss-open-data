@@ -1,7 +1,7 @@
 """Download staged PDF documents into a dedicated local cache.
 
 Usage:
-    uv run python download_docs.py
+    uv run python src/download_docs.py
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ from download_common import (
     utc_now,
 )
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parent.parent
 
 DOC_DOWNLOAD_STATE_KEYS = (
     "doc_id",

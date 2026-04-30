@@ -35,7 +35,7 @@ from urllib.parse import urlparse
 from config import doc_manifest_path
 from doc_utils import extract_pdf_urls, pdf_doc_id, pdf_doc_name
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parent.parent
 STAGING_DIR = ROOT / "staging"
 META_DIR = ROOT / "metadata"
 META_DIR.mkdir(exist_ok=True)
@@ -540,8 +540,8 @@ def load_doc_downloads() -> dict[str, dict]:
 
 
 def load_excluded_ids() -> set[str]:
-    """Read ids flagged in excluded_datasets.csv (drop from dataset metadata)."""
-    fp = ROOT / "excluded_datasets.csv"
+    """Read ids flagged in staging/excluded_datasets.csv (drop from dataset metadata)."""
+    fp = ROOT / "staging" / "excluded_datasets.csv"
     if not fp.exists():
         return set()
     ids: set[str] = set()

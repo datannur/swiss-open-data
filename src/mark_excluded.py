@@ -1,13 +1,14 @@
 """
-Maintain ./excluded_datasets.csv (id,reason).
+Maintain ./staging/excluded_datasets.csv (id,reason).
 
 Scans datannurpy logs and adds any dataset with 0 extracted variables as
 `reason=non-tabular`. The CSV is the source of truth: existing rows are
 preserved (manual edits / additional reasons survive).
 
 Usage:
-    uv run python mark_excluded.py [datannurpy*.log ...]
-    # default: all logs matching ./datannurpy*.log and ./staging/datannurpy*.log
+    uv run python src/mark_excluded.py [datannurpy*.log ...]
+    # default: all logs matching ./staging/logs/datannurpy*.log
+    # and legacy locations ./datannurpy*.log, ./staging/datannurpy*.log
 """
 
 from __future__ import annotations
@@ -17,8 +18,10 @@ import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).parent
-EXCLUDED_CSV = ROOT / "excluded_datasets.csv"
+ROOT = Path(__file__).resolve().parent.parent
+STAGING_DIR = ROOT / "staging"
+LOGS_DIR = STAGING_DIR / "logs"
+EXCLUDED_CSV = STAGING_DIR / "excluded_datasets.csv"
 
 # Match: "  ✓ <uuid>.<ext> (0 vars) in <time>"
 LINE_RE = re.compile(r"^\s*✓\s+(?P<id>[0-9a-f-]{36})\.[A-Za-z0-9]+\s+\(0 vars\)")
@@ -59,8 +62,9 @@ def main(argv: list[str]) -> int:
     else:
         logs = sorted(
             {
+                *LOGS_DIR.glob("datannurpy*.log"),
                 *ROOT.glob("datannurpy*.log"),
-                *(ROOT / "staging").glob("datannurpy*.log"),
+                *STAGING_DIR.glob("datannurpy*.log"),
             }
         )
 

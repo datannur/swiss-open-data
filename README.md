@@ -20,9 +20,9 @@ uv sync
 Les 4 commandes principales, dans l'ordre:
 
 ```bash
-uv run python crawl.py                   # crawl CKAN -> staging/
-uv run python download.py                # telecharge dans data/ + maj download_state
-uv run python build_metadata.py          # genere metadata/
+uv run python src/crawl.py               # crawl CKAN -> staging/
+uv run python src/download.py            # telecharge dans data/ + maj download_state
+uv run python src/build_metadata.py      # genere metadata/
 uv run python -m datannurpy catalog.yml  # construit le catalogue final
 ```
 
@@ -54,7 +54,7 @@ Autrement dit, dans datannur, le mot `dataset` ne désigne pas la fiche CKAN, ma
 ### 1. Crawler les packages CKAN
 
 ```bash
-uv run python crawl.py
+uv run python src/crawl.py
 ```
 
 Effet:
@@ -67,7 +67,7 @@ Effet:
 ### 2. Télécharger les fichiers retenus
 
 ```bash
-uv run python download.py
+uv run python src/download.py
 ```
 
 Effet:
@@ -78,7 +78,7 @@ Effet:
 ### 3. Construire les métadonnées finales
 
 ```bash
-uv run python build_metadata.py
+uv run python src/build_metadata.py
 ```
 
 Effet:
@@ -106,22 +106,22 @@ Effet:
 
 `mark_excluded.py` n'est pas une étape normale du pipeline de collecte.
 Il sert uniquement après un passage de `datannurpy`, pour réinjecter dans
-`excluded_datasets.csv` les ressources qui ont produit `0 vars` et qu'on veut
+`staging/excluded_datasets.csv` les ressources qui ont produit `0 vars` et qu'on veut
 ensuite ignorer lors des prochains téléchargements / builds.
 
 ```bash
-uv run python mark_excluded.py [datannurpy*.log ...]
+uv run python src/mark_excluded.py [datannurpy*.log ...]
 ```
 
-Sans argument, le script scanne les logs `datannurpy*.log` trouvés à la racine
-du projet ou dans `staging/`.
+Sans argument, le script scanne d'abord `staging/logs/datannurpy*.log`, puis
+accepte aussi les anciens logs `datannurpy*.log` à la racine ou dans `staging/`.
 
 ## Rejouer uniquement la fin du pipeline
 
 Si `staging/` et `data/` sont déjà remplis, il suffit souvent de relancer:
 
 ```bash
-uv run python build_metadata.py
+uv run python src/build_metadata.py
 uv run python -m datannurpy catalog.yml
 ```
 
@@ -144,6 +144,6 @@ uv run pyright
 ## Remarques
 
 - `staging/` est un état de travail partagé entre formats.
-- `download.py` lit directement `staging/resources.jsonl`; l'étape de probe séparée a été supprimée.
+- `src/download.py` lit directement `staging/resources.jsonl`; l'étape de probe séparée a été supprimée.
 - Le champ `format_key` dans les JSONL reste utilisé en interne pour appliquer les règles propres à chaque format.
 - Le mapping métier vers datannur est documenté dans `MAPPING.md`.

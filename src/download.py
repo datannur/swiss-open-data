@@ -12,7 +12,7 @@ Features:
     - Safe to interrupt: manifest is rewritten atomically after each batch.
 
 Usage:
-    uv run python download.py
+    uv run python src/download.py
 """
 
 from __future__ import annotations
@@ -40,7 +40,9 @@ from download_common import (
     utc_now,
 )
 
-EXCLUDED_CSV = Path(__file__).parent / "excluded_datasets.csv"
+ROOT = Path(__file__).resolve().parent.parent
+STAGING_DIR = ROOT / "staging"
+EXCLUDED_CSV = STAGING_DIR / "excluded_datasets.csv"
 
 DOWNLOAD_STATE_KEYS = (
     "resource_id",
@@ -91,7 +93,7 @@ def normalize_download_state_entry(entry: dict[str, Any]) -> dict[str, Any]:
         normalized.get("local_path"),
     )
     local_path = normalized.get("local_path")
-    if local_path and not (Path(__file__).parent / local_path).exists():
+    if local_path and not (ROOT / local_path).exists():
         normalized["local_path"] = None
         if not normalized.get("error"):
             normalized["error"] = "missing local file"
@@ -99,7 +101,7 @@ def normalize_download_state_entry(entry: dict[str, Any]) -> dict[str, Any]:
 
 
 def load_excluded_ids() -> set[str]:
-    """Read ids flagged in excluded_datasets.csv (skipped before download)."""
+    """Read ids flagged in staging/excluded_datasets.csv (skipped before download)."""
     if not EXCLUDED_CSV.exists():
         return set()
     ids: set[str] = set()
@@ -119,7 +121,7 @@ def target_path(fmt: FormatConfig, res: dict[str, Any]) -> Path:
 
 
 def legacy_data_dir(fmt: FormatConfig) -> Path:
-    return Path(__file__).parent / "data" / fmt.key
+    return ROOT / "data" / fmt.key
 
 
 def migrate_legacy_file(fmt: FormatConfig, path: Path) -> Path:
@@ -155,7 +157,7 @@ def normalize_local_path(format_key: str | None, local_path: str | None) -> str 
     legacy_path = legacy_data_dir(fmt) / path.name
     if path.parts[:2] == ("data", fmt.key):
         if legacy_path.exists():
-            return str(migrate_legacy_file(fmt, legacy_path).relative_to(Path(__file__).parent))
+            return str(migrate_legacy_file(fmt, legacy_path).relative_to(ROOT))
         if (data_dir(fmt) / path.name).exists():
             return str(flat_path)
 
@@ -423,7 +425,7 @@ def process_format(
         manifest[rid] = download_state_entry(
             res,
             local_path=(
-                str(dest.relative_to(Path(__file__).parent))
+                str(dest.relative_to(ROOT))
                 if r.status in ("ok", "skipped")
                 else None
             ),

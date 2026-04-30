@@ -373,7 +373,7 @@ référencer cette même ligne via `doc_ids`.
 
 ## 6. Livrables attendus
 
-Le script `build_metadata.py` produit un dossier `metadata/` contenant :
+Le script `src/build_metadata.py` produit un dossier `metadata/` contenant :
 
 ```
 metadata/

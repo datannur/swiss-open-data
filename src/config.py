@@ -6,7 +6,7 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parent.parent
 
 
 @dataclass(frozen=True)

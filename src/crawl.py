@@ -7,7 +7,7 @@ package id; resources stay one line per CKAN resource and carry their format in
 the payload.
 
 Usage:
-    uv run python crawl.py
+    uv run python src/crawl.py
 """
 
 from __future__ import annotations
