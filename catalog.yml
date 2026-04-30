@@ -1,9 +1,9 @@
 app_path: ./catalog
 metadata_path: ./metadata
-depth: variable
+depth: stat
 refresh: false
 open_browser: true
-log_file: ./datannurpy.log
+log_file: ./staging/logs/datannurpy.log
 
 copy_assets:
   from: ./staging/docs

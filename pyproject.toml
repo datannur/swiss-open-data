@@ -25,4 +25,3 @@ include = ["src/"]
 
 [tool.uv]
 environments = ["sys_platform == 'darwin'"]
-prerelease = "allow"

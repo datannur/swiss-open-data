@@ -8,9 +8,6 @@ supported-markers = [
     "sys_platform == 'darwin'",
 ]
 
-[options]
-prerelease-mode = "allow"
-
 [[package]]
 name = "atpublic"
 version = "7.0.0"
