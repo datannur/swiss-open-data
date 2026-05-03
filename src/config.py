@@ -116,6 +116,12 @@ def doc_manifest_path() -> Path:
     return staging_dir() / "doc_download_state.jsonl"
 
 
+def log_dir() -> Path:
+    p = staging_dir() / "logs"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
 def exported_doc_rel_path(doc_id: str) -> Path:
     return Path("data") / "doc" / f"{doc_id}.pdf"
 

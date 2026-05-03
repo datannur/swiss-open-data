@@ -17,11 +17,13 @@ uv sync
 
 ## En bref
 
-Les 4 commandes principales, dans l'ordre:
+Les commandes principales, dans l'ordre:
 
 ```bash
 uv run python src/crawl.py               # crawl CKAN -> staging/
 uv run python src/download.py            # telecharge dans data/ + maj download_state
+uv run python src/download.py            # optionnel: retente les echecs, skip les fichiers deja presents
+uv run python src/download_docs.py       # telecharge les PDF de documentation -> staging/docs/
 uv run python src/build_metadata.py      # genere metadata/
 uv run python -m datannurpy catalog.yml  # construit le catalogue final
 ```
@@ -33,6 +35,7 @@ uv run python -m datannurpy catalog.yml  # construit le catalogue final
 - `staging/resources.jsonl`: ressources CKAN filtrées par format, fusionnées, avec leurs métadonnées propres
 - `staging/download_state.jsonl`: état technique des téléchargements, sans duplication des métadonnées CKAN
 - `data/`: fichiers téléchargés
+- `public/`: fichiers maintenus à la main et copiés vers `metadata/` ou le catalogue généré
 - `metadata/`: CSV finaux pour datannur
 
 ## Vocabulaire CKAN
@@ -75,7 +78,20 @@ Effet:
 - télécharge les fichiers dans `data/`
 - met à jour `staging/download_state.jsonl`
 
-### 3. Construire les métadonnées finales
+La commande est idempotente: les fichiers déjà téléchargés sont sautés. Après un premier passage avec des erreurs réseau, il est utile de la relancer une fois pour retenter uniquement ce qui manque.
+
+### 3. Télécharger les PDF de documentation
+
+```bash
+uv run python src/download_docs.py
+```
+
+Effet:
+
+- télécharge les PDF référencés dans `staging/docs/`
+- met à jour `staging/doc_download_state.jsonl`
+
+### 4. Construire les métadonnées finales
 
 ```bash
 uv run python src/build_metadata.py
@@ -89,7 +105,7 @@ Effet:
 - écrit `metadata/tag.csv`
 - écrit `metadata/doc.csv`
 
-### 4. Construire le catalogue avec datannurpy
+### 5. Construire le catalogue avec datannurpy
 
 ```bash
 uv run python -m datannurpy catalog.yml

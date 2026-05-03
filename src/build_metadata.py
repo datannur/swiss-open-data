@@ -24,6 +24,7 @@ from __future__ import annotations
 import csv
 import json
 import re
+import shutil
 import sys
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -32,12 +33,13 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from config import doc_manifest_path
+from config import doc_manifest_path, log_dir
 from doc_utils import extract_pdf_urls, pdf_doc_id, pdf_doc_name
 
 ROOT = Path(__file__).resolve().parent.parent
 STAGING_DIR = ROOT / "staging"
 META_DIR = ROOT / "metadata"
+PUBLIC_DIR = ROOT / "public"
 META_DIR.mkdir(exist_ok=True)
 
 
@@ -303,6 +305,12 @@ def dataset_license_label(resource: dict) -> str | None:
     return normalize_license_label(resource.get("license")) or normalize_license_label(
         resource.get("rights")
     )
+
+
+def dataset_type_label(license_label: str | None) -> str:
+    if license_label == "Opendata.swiss BY ASK":
+        return "Sur demande"
+    return "Libre"
 
 
 def folder_license_label(package: dict, package_resources: list[dict]) -> str | None:
@@ -895,6 +903,7 @@ def build_datasets(
             except ValueError, OSError:
                 pass
 
+        license_label = dataset_license_label(res)
         rows.append(
             {
                 "id": rid,
@@ -907,9 +916,9 @@ def build_datasets(
                 "description": description,
                 "data_path": local_path,
                 "link": res.get("url"),
-                "license": dataset_license_label(res),
+                "license": license_label,
                 "delivery_format": fmt_lower or None,
-                "type": "resource",
+                "type": dataset_type_label(license_label),
                 "localisation": pick_localisation(p, org),
                 "start_date": start_date,
                 "end_date": end_date,
@@ -1150,6 +1159,7 @@ def purge_organizations(
 
 
 def main() -> int:
+    log_dir()
     print("Loading CKAN packages…")
     packages = load_packages()
     print(f"  {len(packages)} unique packages")
@@ -1233,6 +1243,13 @@ def main() -> int:
     write_csv(META_DIR / "dataset.csv", DATASET_COLS, datasets)
     write_csv(META_DIR / "tag.csv", TAG_COLS, tags)
     write_csv(META_DIR / "doc.csv", DOC_COLS, docs)
+
+    config_source = PUBLIC_DIR / "config.xlsx"
+    config_target = META_DIR / "config.xlsx"
+    shutil.copy2(config_source, config_target)
+    print(
+        f"  copied {config_source.relative_to(ROOT)} -> {config_target.relative_to(ROOT)}"
+    )
 
     # Sanity: detect FK issues
     print("\nSanity checks…")

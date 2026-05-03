@@ -305,7 +305,7 @@ non mentionnés sont laissés `null` (datannur les considère optionnels).
 | `start_date`       | `package.temporals[0].start_date` (hérité)             |
 | `end_date`         | `package.temporals[0].end_date`                        |
 | `updating_each`    | `package.accrual_periodicity`                          |
-| `type`             | `"resource"`                                           |
+| `type`             | catégorie de réutilisation dérivée de `license`: `Libre` ou `Sur demande` |
 
 ### 4.4 `tag.csv`
 
