@@ -557,6 +557,20 @@ def load_excluded_ids() -> set[str]:
     return ids
 
 
+def load_excluded_package_ids() -> set[str]:
+    """Read package ids flagged in staging/excluded_packages.csv."""
+    fp = ROOT / "staging" / "excluded_packages.csv"
+    if not fp.exists():
+        return set()
+    ids: set[str] = set()
+    with fp.open(newline="") as f:
+        for row in csv.DictReader(f):
+            package_id = (row.get("id") or "").strip()
+            if package_id:
+                ids.add(package_id)
+    return ids
+
+
 def package_organization(package: dict, organizations: dict[str, dict]) -> dict:
     org_name = package.get("organization_name")
     return organizations.get(org_name or "", {})
@@ -1153,12 +1167,28 @@ def main() -> int:
     print(f"  {len(doc_downloads)} successfully downloaded docs")
 
     excluded = load_excluded_ids()
+    excluded_package_ids = load_excluded_package_ids()
     if excluded:
         before = len(manifests)
         manifests = {rid: m for rid, m in manifests.items() if rid not in excluded}
         print(
             f"  excluded_datasets.csv: -{before - len(manifests)} dropped "
             f"({len(excluded)} ids in list)"
+        )
+    if excluded_package_ids:
+        resource_package_ids = {
+            resource_id: resource.get("package_id")
+            for resource_id, resource in resources.items()
+        }
+        before = len(manifests)
+        manifests = {
+            rid: m
+            for rid, m in manifests.items()
+            if resource_package_ids.get(rid) not in excluded_package_ids
+        }
+        print(
+            f"  excluded_packages.csv: -{before - len(manifests)} dropped "
+            f"({len(excluded_package_ids)} ids in list)"
         )
 
     print("\nBuilding entities…")
@@ -1184,7 +1214,7 @@ def main() -> int:
 
     # Cascade purge: drop folders without surviving descendants, then orphan
     # docs and tags. Idempotent — runs every build, no state to maintain.
-    if excluded:
+    if excluded or excluded_package_ids:
         n_o0, n_f0, n_d0, n_t0 = len(institutions), len(folders), len(docs), len(tags)
         folders, docs, tags = cascade_purge(folders, datasets, docs, tags)
         institutions = purge_organizations(institutions, folders, datasets)

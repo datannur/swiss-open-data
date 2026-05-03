@@ -43,6 +43,7 @@ from download_common import (
 ROOT = Path(__file__).resolve().parent.parent
 STAGING_DIR = ROOT / "staging"
 EXCLUDED_CSV = STAGING_DIR / "excluded_datasets.csv"
+EXCLUDED_PACKAGES_CSV = STAGING_DIR / "excluded_packages.csv"
 
 DOWNLOAD_STATE_KEYS = (
     "resource_id",
@@ -110,6 +111,19 @@ def load_excluded_ids() -> set[str]:
             rid = (row.get("id") or "").strip()
             if rid:
                 ids.add(rid)
+    return ids
+
+
+def load_excluded_package_ids() -> set[str]:
+    """Read package ids flagged in staging/excluded_packages.csv."""
+    if not EXCLUDED_PACKAGES_CSV.exists():
+        return set()
+    ids: set[str] = set()
+    with EXCLUDED_PACKAGES_CSV.open(newline="") as f:
+        for row in csv.DictReader(f):
+            package_id = (row.get("id") or "").strip()
+            if package_id:
+                ids.add(package_id)
     return ids
 
 
@@ -373,6 +387,7 @@ def process_format(
     manifest_file: Path,
     all_manifest: dict[str, dict[str, Any]],
     excluded_ids: set[str],
+    excluded_package_ids: set[str],
 ) -> None:
     previous = {
         rid: entry
@@ -387,6 +402,8 @@ def process_format(
         print(f"[{fmt.key}] max_bytes per resource: {fmt.max_bytes / 1e6:.0f} MB")
     if excluded_ids:
         print(f"[{fmt.key}] excluded_datasets.csv: {len(excluded_ids)} ids")
+    if excluded_package_ids:
+        print(f"[{fmt.key}] excluded_packages.csv: {len(excluded_package_ids)} ids")
 
     manifest: dict[str, dict[str, Any]] = dict(previous)
     counts: dict[str, int] = {}
@@ -406,6 +423,19 @@ def process_format(
                 sha256=None,
                 http_status=None,
                 error="id in excluded_datasets.csv",
+                response_content_type=None,
+                downloaded_at=None,
+            )
+            continue
+        if res.get("package_id") in excluded_package_ids:
+            manifest[rid] = download_state_entry(
+                res,
+                local_path=None,
+                download_status="skipped_excluded",
+                downloaded_bytes=0,
+                sha256=None,
+                http_status=None,
+                error="package id in excluded_packages.csv",
                 response_content_type=None,
                 downloaded_at=None,
             )
@@ -510,6 +540,7 @@ def main() -> int:
     session = make_session()
     all_manifest = load_existing_manifest(manifest_file)
     excluded_ids = load_excluded_ids()
+    excluded_package_ids = load_excluded_package_ids()
     for fmt in iter_formats():
         process_format(
             session,
@@ -518,6 +549,7 @@ def main() -> int:
             manifest_file,
             all_manifest,
             excluded_ids,
+            excluded_package_ids,
         )
     return 0
 

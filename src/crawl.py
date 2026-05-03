@@ -48,6 +48,15 @@ def pick_localized_text(
     return None
 
 
+def resource_matches_language(res: dict[str, Any]) -> bool:
+    languages = res.get("language")
+    if not languages:
+        return True
+    if isinstance(languages, str):
+        return languages == LANGUAGE
+    return LANGUAGE in languages
+
+
 def extract_urls(value: Any) -> list[str]:
     """Collect URLs found anywhere in a nested CKAN field."""
     seen: set[str] = set()
@@ -114,6 +123,8 @@ def extract_resources(
 ) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for res in pkg.get("resources", []) or []:
+        if not resource_matches_language(res):
+            continue
         res_format = (res.get("format") or "").strip().upper()
         format_key = format_map.get(res_format)
         if format_key is None:
@@ -127,6 +138,7 @@ def extract_resources(
                 "name": pick_localized_text(res.get("name")),
                 "title": pick_localized_text(res.get("title")),
                 "description": pick_localized_text(res.get("description")),
+                "language": res.get("language"),
                 "format": res.get("format"),
                 "url": url,
                 "documentation_urls": extract_urls(res.get("documentation")),
