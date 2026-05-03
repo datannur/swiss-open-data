@@ -361,8 +361,7 @@ def write_manifest(manifest_file: Path, entries: list[dict[str, Any]]) -> None:
     with tmp.open("w", encoding="utf-8") as f:
         for e in entries:
             f.write(
-                json.dumps(normalize_download_state_entry(e), ensure_ascii=False)
-                + "\n"
+                json.dumps(normalize_download_state_entry(e), ensure_ascii=False) + "\n"
             )
     tmp.replace(manifest_file)
 
@@ -425,9 +424,7 @@ def process_format(
         manifest[rid] = download_state_entry(
             res,
             local_path=(
-                str(dest.relative_to(ROOT))
-                if r.status in ("ok", "skipped")
-                else None
+                str(dest.relative_to(ROOT)) if r.status in ("ok", "skipped") else None
             ),
             download_status=r.status,
             downloaded_bytes=r.downloaded_bytes,

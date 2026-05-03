@@ -6,5 +6,5 @@ out/
 staging/
 data/
 metadata/
-catalog/
+catalog*/
 *.log

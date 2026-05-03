@@ -310,7 +310,11 @@ def folder_license_label(package: dict, package_resources: list[dict]) -> str | 
         package.get("license_title")
     ) or normalize_license_label(package.get("license_id"))
     resource_labels = sorted(
-        {label for resource in package_resources if (label := dataset_license_label(resource))}
+        {
+            label
+            for resource in package_resources
+            if (label := dataset_license_label(resource))
+        }
     )
     if len(resource_labels) == 1:
         return resource_labels[0]
@@ -334,7 +338,7 @@ def normalize_unix_timestamp(value: str | int | float | None) -> int | None:
 
     try:
         dt = parsedate_to_datetime(text)
-    except (TypeError, ValueError, IndexError, OverflowError):
+    except TypeError, ValueError, IndexError, OverflowError:
         dt = None
 
     if dt is None:
@@ -654,7 +658,11 @@ def build_institutions(
         if package.get("organization_name"):
             row["parent_candidates"].add(package["organization_name"])
         display_name = contact.get("name")
-        if display_name and display_name.casefold() != email.casefold() and not row["name"]:
+        if (
+            display_name
+            and display_name.casefold() != email.casefold()
+            and not row["name"]
+        ):
             row["name"] = display_name
 
     for manager_id in sorted(manager_contacts):
@@ -663,7 +671,9 @@ def build_institutions(
         rows.append(
             {
                 "id": manager_id,
-                "parent_id": next(iter(parent_candidates)) if len(parent_candidates) == 1 else None,
+                "parent_id": next(iter(parent_candidates))
+                if len(parent_candidates) == 1
+                else None,
                 "name": manager.get("name") or manager.get("email"),
                 "description": None,
                 "email": manager.get("email"),
@@ -1102,7 +1112,9 @@ def cascade_purge(
     return kept_folders, kept_docs, kept_tags
 
 
-def purge_organizations(organizations: list[dict], folders: list[dict], datasets: list[dict]) -> list[dict]:
+def purge_organizations(
+    organizations: list[dict], folders: list[dict], datasets: list[dict]
+) -> list[dict]:
     """Keep only organizations referenced by surviving rows, plus their ancestors."""
     org_by_id = {row["id"]: row for row in organizations}
     keep: set[str] = set()

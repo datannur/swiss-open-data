@@ -127,7 +127,9 @@ def write_doc_manifest(manifest_file: Path, entries: list[dict[str, Any]]) -> No
     with tmp.open("w", encoding="utf-8") as f:
         for entry in entries:
             f.write(
-                json.dumps(normalize_doc_download_state_entry(entry), ensure_ascii=False)
+                json.dumps(
+                    normalize_doc_download_state_entry(entry), ensure_ascii=False
+                )
                 + "\n"
             )
     tmp.replace(manifest_file)
@@ -323,7 +325,9 @@ def process_docs(session: requests.Session, staging: Path) -> None:
                 else previous_entry.get("last_modified")
             ),
             downloaded_at=(
-                utc_now() if result.status == "ok" else previous_entry.get("downloaded_at")
+                utc_now()
+                if result.status == "ok"
+                else previous_entry.get("downloaded_at")
             ),
         )
 
