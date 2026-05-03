@@ -9,3 +9,4 @@ data/
 metadata/
 catalog*/
 *.log
+app_conf/

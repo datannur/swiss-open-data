@@ -6,14 +6,14 @@ open_browser: true
 log_file: ./staging/logs/datannurpy.log
 
 copy_assets:
+  - from: ./app_conf
+    to: data
   - from: ./staging/docs
     to: data/doc
     include: "*.pdf"
-    clean: true
   - from: ./public/img
     to: data/img
-    clean: true
-
+    
 add:
   - folder: ./data
     create_folders: false

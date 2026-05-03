@@ -26,6 +26,7 @@ uv run python src/download.py            # optionnel: retente les echecs, skip l
 uv run python src/download_docs.py       # telecharge les PDF de documentation -> staging/docs/
 uv run python src/build_metadata.py      # genere metadata/
 uv run python -m datannurpy catalog.yml  # construit le catalogue final
+cd catalog && npm install && npm run static-deploy  # pages statiques + deploy
 ```
 
 ## Structure utile
@@ -117,6 +118,20 @@ Effet:
 - scanne les fichiers tabulaires
 - produit / met à jour le catalogue dans `catalog/`
 - écrit un log `datannurpy*.log`
+
+### 6. Générer les pages statiques et déployer
+
+```bash
+cd catalog
+npm install
+npm run static-deploy
+```
+
+Effet:
+
+- installe les dépendances Node nécessaires dans `catalog/`
+- exécute `static-make`, puis `deploy`
+- publie la version statique du catalogue généré
 
 ## Boucle optionnelle après datannurpy
 
