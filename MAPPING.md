@@ -296,8 +296,9 @@ non mentionnés sont laissés `null` (datannur les considère optionnels).
 | `name`             | `resource.title.fr` ou fallback `resource.format`      |
 | `description`      | `resource.description.fr`                              |
 | `doc_ids`          | PDFs trouvés dans `resource.url`, `resource.description.fr`, `resource.documentation[]` et `resource.relations[]` (via staging `documentation_urls` / `relation_urls`) ; une même URL PDF réutilise le même `doc_id` global |
-| `data_path`        | `data/<fmt>/<rid>.<ext>` (chemin local réel)           |
-| `link`             | `resource.url` (URL amont opendata.swiss)              |
+| `data_path`        | `resource.url` (URL directe du fichier de données amont) |
+| `_match_path`      | `data/<fmt>/<rid>.<ext>` relatif à `metadata/` (chemin technique local, non exporté par datannurpy) |
+| `link`             | `null` ; la fiche/page source est portée par le `folder.link` du package parent |
 | `license`          | `resource.license` sinon `resource.rights`             |
 | `delivery_format`  | `resource.format` (`PARQUET`, `CSV`, `XLS`, `XLSX`)    |
 | `data_size`        | `manifest.downloaded_bytes` (taille réelle fichier)    |

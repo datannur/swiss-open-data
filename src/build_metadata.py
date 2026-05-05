@@ -891,8 +891,8 @@ def build_datasets(
             fmt_lower = ext or fmt_value.lower()
         else:
             fmt_lower = fmt_value.lower()
-        # data_path is resolved by datannurpy relative to the metadata file's
-        # directory (METADATA_DIR), so write the path relative to that.
+        # _match_path is resolved by datannurpy relative to the metadata file's
+        # directory (METADATA_DIR), so write the local path relative to that.
         if local_path:
             try:
                 local_path = str(
@@ -914,8 +914,9 @@ def build_datasets(
                 "doc_ids": dataset_doc_ids,
                 "name": name_fr,
                 "description": description,
-                "data_path": local_path,
-                "link": res.get("url"),
+                "data_path": res.get("url"),
+                "_match_path": local_path,
+                "link": None,
                 "license": license_label,
                 "delivery_format": fmt_lower or None,
                 "type": dataset_type_label(license_label),
@@ -1035,6 +1036,7 @@ DATASET_COLS = [
     "name",
     "description",
     "data_path",
+    "_match_path",
     "link",
     "license",
     "delivery_format",
