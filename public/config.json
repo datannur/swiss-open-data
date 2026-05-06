@@ -1,0 +1,22 @@
+[
+  {
+    "id": "contact_email",
+    "value": "contact@datannur.com"
+  },
+  {
+    "id": "banner",
+    "value": "![main-banner not-rounded no-caption](data/img/main-banner.png?v=1)\n![main-banner not-rounded no-caption dark-mode](data/img/main-banner-dark.png?v=1)"
+  },
+  {
+    "id": "more_info",
+    "value": "Cette démo utilise des données ouvertes et des métadonnées issues d'[opendata.swiss](https://opendata.swiss). Le code du catalogue est open source ; les données restent soumises aux conditions de réutilisation de leurs fournisseurs.\n\nLes catégories **Libre** et **Sur demande** indiquent si une ressource est directement réutilisable ou nécessite une demande préalable.\n\nCette démo n'est pas un catalogue officiel. Les données utilisées servent avant tout à illustrer les fonctionnalités de datannur et peuvent être incomplètes, inexactes ou ne pas être à jour."
+  },
+  {
+    "id": "filter_1",
+    "value": "Libre: Libre"
+  },
+  {
+    "id": "filter_2",
+    "value": "Sur demande: Sur demande"
+  }
+]

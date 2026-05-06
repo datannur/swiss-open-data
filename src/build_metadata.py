@@ -11,7 +11,7 @@ Writes (in ./metadata/):
   tag.csv           — thematic tags + free CKAN keywords
     doc.csv           — PDF documentation URLs attached to folders/datasets
 
-Decisions documented in MAPPING.md.
+Mapping decisions are summarized in README.md.
 
 CSV handling:
   Values may contain commas, quotes, and newlines (rich descriptions, …).
@@ -44,7 +44,7 @@ META_DIR.mkdir(exist_ok=True)
 
 
 # =============================================================================
-# Static tables (see MAPPING.md §3.2 / §3.4 / §3.5)
+# Static tables used by the CKAN-to-datannur mapping summarized in README.md.
 # =============================================================================
 
 # DCAT-AP-CH thematic groups observed in the corpus. Labels are official
@@ -1246,8 +1246,8 @@ def main() -> int:
     write_csv(META_DIR / "tag.csv", TAG_COLS, tags)
     write_csv(META_DIR / "doc.csv", DOC_COLS, docs)
 
-    config_source = PUBLIC_DIR / "config.xlsx"
-    config_target = META_DIR / "config.xlsx"
+    config_source = PUBLIC_DIR / "config.json"
+    config_target = META_DIR / "config.json"
     shutil.copy2(config_source, config_target)
     print(
         f"  copied {config_source.relative_to(ROOT)} -> {config_target.relative_to(ROOT)}"
