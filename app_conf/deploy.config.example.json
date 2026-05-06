@@ -1,0 +1,29 @@
+{
+  "name": "suisse.datannur.com",
+  "host": "example.com",
+  "port": 22,
+  "username": "deploy-user",
+  "remotePath": "/path/to/static/catalog",
+  "privateKeyPath": "/path/to/private/key",
+  "ignore": [
+    "node-scripts",
+    "python-scripts",
+    "data-template",
+    "node_modules",
+    "windows-setup",
+    ".DS_Store",
+    "~$*",
+    "package.json",
+    "package-lock.json",
+    ".nojekyll",
+    "data/jsonjsdb-config.html",
+    "data/localhost-ports.config.json",
+    "data/deploy.config.json",
+    "data/static-make.config.json",
+    "data/update-app.json",
+    "tsconfig.json"
+  ],
+  "syncOption": {
+    "delete": true
+  }
+}

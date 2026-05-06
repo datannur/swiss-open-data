@@ -8,6 +8,7 @@ log_file: ./staging/logs/datannurpy.log
 copy_assets:
   - from: ./app_conf
     to: data
+    include: "*.config.json"
   - from: ./staging/docs
     to: data/doc
     include: "*.pdf"

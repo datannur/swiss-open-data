@@ -1,0 +1,10 @@
+{
+  "infomaniak": {
+    "apiKey": "replace-with-infomaniak-api-key",
+    "productId": "replace-with-infomaniak-product-id"
+  },
+  "turnstile": {
+    "siteKey": "replace-with-turnstile-site-key",
+    "secretKey": "replace-with-turnstile-secret-key"
+  }
+}

@@ -1,4 +1,10 @@
 .DS_Store
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.pfx
 *.pyc
 __pycache__/
 .venv/
@@ -9,4 +15,5 @@ data/
 metadata/
 catalog*/
 *.log
-app_conf/
+app_conf/deploy.config.json
+app_conf/llm-web.config.json

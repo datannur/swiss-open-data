@@ -1,0 +1,25 @@
+{
+  "domain": "https://suisse.datannur.com",
+  "indexSeo": false,
+  "appPath": ".",
+  "outDir": "static",
+  "dbMetaPath": "data/db",
+  "port": 8080,
+  "entities": ["organization", "folder", "tag", "dataset"],
+  "routes": [
+    "",
+    "organizations",
+    "folders",
+    "tags",
+    "docs",
+    "datasets",
+    "variables",
+    "modalities",
+    "favorite",
+    "options",
+    "about",
+    "search",
+    "meta",
+    "_error"
+  ]
+}
