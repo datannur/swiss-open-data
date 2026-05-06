@@ -1,125 +1,125 @@
 # datannur-opench
 
-Pipeline de collecte et de préparation des métadonnées opendata.swiss pour datannur.
+Production pipeline for the public datannur demo catalog at suisse.datannur.com, built from French-language tabular datasets published on opendata.swiss.
 
-Le workflow est maintenant organisé autour de dossiers partagés `staging/` et `data/`. Les métadonnées intermédiaires ne sont plus séparées par format, et les fichiers téléchargés sont écrits directement dans `data/`.
+## Status
 
-## Prérequis
+This repository is published for transparency and as a concrete datannur integration example. It is not intended to be a generic template, a stable API, or a reusable product as-is.
+
+## Scope
+
+The pipeline targets opendata.swiss CKAN resources that are:
+
+- French-language or language-neutral;
+- tabular files in Parquet, CSV, or Excel format;
+- processed as part of the demo catalog build.
+
+PDF documentation referenced by CKAN packages or resources is downloaded separately and exposed as datannur documents.
+
+## CKAN to datannur Mapping
+
+In CKAN, a `package` is a publication record. It contains metadata, a publishing organization, thematic groups, keywords, and one or more `resources`. A resource is an individual file or URL attached to the package.
+
+Resources in the same package may represent the same data in different formats, a time series split across files, or different tables grouped under the same publication record. The pipeline therefore does not assume that resources in the same package share a schema.
+
+| datannur entity | Source |
+| --- | --- |
+| `organization` | CKAN organizations plus a small reconstructed hierarchy |
+| `folder` | CKAN packages and top-level thematic folders |
+| `dataset` | Successfully downloaded CKAN resources |
+| `tag` | CKAN thematic groups and French keywords |
+| `doc` | Deduplicated PDF documentation URLs |
+
+Each downloaded CKAN resource becomes one datannur `dataset`. This matches how `datannurpy` scans files and avoids merging resources that may have different schemas.
+
+Each CKAN package becomes one datannur `folder`. The folder preserves the editorial grouping between resources from the same publication record.
+
+Top-level folders are created from DCAT-AP-CH thematic groups. Packages with one group are placed under that group. Packages with several groups are placed under `multi`; packages without a group are placed under `other`. The same thematic information is also exposed as tags, so users can either browse by folder or filter by tag.
+
+CKAN `organization` is mapped to datannur `owner_id`, because it represents the publisher of the source package. CKAN `contact_points` are mapped to datannur `manager_id` only when a valid email is available. These manager organizations are synthetic, deduplicated globally by email, and attached to both the package folder and its datasets.
+
+The organization hierarchy is lightly reconstructed from CKAN organization metadata and a few project-specific containers, such as national, cantonal, communal, and other institutions. This improves navigation in the demo catalog, but is not meant to be a complete institutional authority file.
+
+The pipeline emits two tag families: thematic tags from CKAN groups and free keyword tags from `keywords.fr`. Thematic tags are grouped under a common root, and free keywords are grouped under a separate root to avoid mixing controlled themes with free-text keywords.
+
+PDF URLs found in package and resource metadata are downloaded into the documentation cache and exported as datannur `doc` rows. Documents are deduplicated globally by source URL, so the same PDF can be referenced by multiple folders or datasets.
+
+## Repository Structure
+
+- `src/`: pipeline scripts
+- `staging/`: intermediate crawl, download, and PDF documentation state
+- `data/`: downloaded tabular files
+- `metadata/`: CSV files generated for datannur
+- `public/`: manually maintained assets and catalog configuration
+- `app_conf/`: app configuration copied into the generated catalog; sensitive local files are ignored
+- `catalog/`: datannurpy output, ignored by Git
+
+## Requirements
 
 - `uv`
-- Python défini par le projet via `pyproject.toml`
+- The Python version defined in `pyproject.toml`
+- Node.js and npm for the final static build and deployment step
 
-Installation de l'environnement:
+Install the environment:
 
 ```bash
 uv sync
 ```
 
-## En bref
-
-Les commandes principales, dans l'ordre:
+Create the private app configuration files from the examples before building or deploying the catalog:
 
 ```bash
-uv run python src/crawl.py               # crawl CKAN -> staging/
-uv run python src/download.py            # telecharge dans data/ + maj download_state
-uv run python src/download.py            # optionnel: retente les echecs, skip les fichiers deja presents
-uv run python src/download_docs.py       # telecharge les PDF de documentation -> staging/docs/
-uv run python src/build_metadata.py      # genere metadata/
-uv run python -m datannurpy catalog.yml  # construit le catalogue final
-cd catalog && npm install && npm run static-deploy  # pages statiques + deploy
+cp app_conf/deploy.config.example.json app_conf/deploy.config.json
+cp app_conf/llm-web.config.example.json app_conf/llm-web.config.json
 ```
 
-## Structure utile
+`app_conf/deploy.config.json` and `app_conf/llm-web.config.json` are ignored by Git because they may contain deployment credentials, API keys, and other environment-specific values. Review and replace the placeholders before running the final catalog build or deployment steps.
 
-- `staging/organizations.jsonl`: organisations CKAN dédupliquées
-- `staging/packages.jsonl`: packages CKAN dédupliqués, limités aux métadonnées package
-- `staging/resources.jsonl`: ressources CKAN filtrées par format, fusionnées, avec leurs métadonnées propres
-- `staging/download_state.jsonl`: état technique des téléchargements, sans duplication des métadonnées CKAN
-- `data/`: fichiers téléchargés
-- `public/`: fichiers maintenus à la main et copiés vers `metadata/` ou le catalogue généré
-- `metadata/`: CSV finaux pour datannur
+## Running the Pipeline
 
-## Vocabulaire CKAN
+Run commands from the repository root unless noted otherwise.
 
-- `package` CKAN: la fiche de publication
-- `dataset` CKAN: en pratique, presque synonyme de `package`
-- `resource` CKAN: un fichier ou une URL à l'intérieur d'un `package`
-
-Règle de lecture dans ce projet:
-
-- 1 `package` CKAN = 1 fiche éditoriale source
-- 1 `package` CKAN peut contenir plusieurs `resources`
-- 1 `resource` tabulaire téléchargée = 1 dataset datannur
-
-Autrement dit, dans datannur, le mot `dataset` ne désigne pas la fiche CKAN, mais l'unité tabulaire finale réellement exploitable.
-
-## Lancer le pipeline complet
-
-### 1. Crawler les packages CKAN
+### 1. Crawl CKAN Packages
 
 ```bash
 uv run python src/crawl.py
 ```
 
-Effet:
+Writes the selected organizations, packages, and resources to `staging/`.
 
-- alimente `staging/organizations.jsonl`
-- alimente `staging/packages.jsonl`
-- alimente `staging/resources.jsonl`
-- met à jour `staging/crawl_summary.json`
-
-### 2. Télécharger les fichiers retenus
+### 2. Download Tabular Files
 
 ```bash
 uv run python src/download.py
 ```
 
-Effet:
+Downloads tabular files to `data/` and updates `staging/download_state.jsonl`. The command is idempotent: existing files are skipped. It can be rerun to retry failed downloads.
 
-- télécharge les fichiers dans `data/`
-- met à jour `staging/download_state.jsonl`
-
-La commande est idempotente: les fichiers déjà téléchargés sont sautés. Après un premier passage avec des erreurs réseau, il est utile de la relancer une fois pour retenter uniquement ce qui manque.
-
-### 3. Télécharger les PDF de documentation
+### 3. Download Documentation PDFs
 
 ```bash
 uv run python src/download_docs.py
 ```
 
-Effet:
+Downloads documentation PDFs to `staging/docs/` and updates `staging/doc_download_state.jsonl`.
 
-- télécharge les PDF référencés dans `staging/docs/`
-- met à jour `staging/doc_download_state.jsonl`
-
-### 4. Construire les métadonnées finales
+### 4. Build Metadata CSVs
 
 ```bash
 uv run python src/build_metadata.py
 ```
 
-Effet:
+Generates the metadata files consumed by datannurpy in `metadata/`: `organization.csv`, `folder.csv`, `dataset.csv`, `tag.csv`, `doc.csv`, and `config.json`.
 
-- écrit `metadata/organization.csv`
-- écrit `metadata/folder.csv`
-- écrit `metadata/dataset.csv`
-- écrit `metadata/tag.csv`
-- écrit `metadata/doc.csv`
-
-### 5. Construire le catalogue avec datannurpy
+### 5. Build the datannur Catalog
 
 ```bash
 uv run python -m datannurpy catalog.yml
 ```
 
-Effet:
+Builds the datannur catalog from `metadata/` and `data/`, copies private app configuration from `app_conf/`, then writes the result to `catalog/`.
 
-- lit `metadata/` et `data/`
-- scanne les fichiers tabulaires
-- produit / met à jour le catalogue dans `catalog/`
-- écrit un log `datannurpy*.log`
-
-### 6. Générer les pages statiques et déployer
+### 6. Build and Deploy Static Pages
 
 ```bash
 cd catalog
@@ -127,44 +127,36 @@ npm install
 npm run static-deploy
 ```
 
-Effet:
+Builds and publishes the static version of the catalog.
 
-- installe les dépendances Node nécessaires dans `catalog/`
-- exécute `static-make`, puis `deploy`
-- publie la version statique du catalogue généré
+## Optional Exclusion Loop
 
-## Boucle optionnelle après datannurpy
-
-`mark_excluded.py` n'est pas une étape normale du pipeline de collecte.
-Il sert uniquement après un passage de `datannurpy`, pour réinjecter dans
-`staging/excluded_datasets.csv` les ressources qui ont produit `0 vars` et qu'on veut
-ensuite ignorer lors des prochains téléchargements / builds.
+`mark_excluded.py` is not part of the normal pipeline. After a `datannurpy` run, it can add resources that produced `0 vars` to `staging/excluded_datasets.csv` so they are ignored by future downloads and builds.
 
 ```bash
 uv run python src/mark_excluded.py [datannurpy*.log ...]
 ```
 
-Sans argument, le script scanne d'abord `staging/logs/datannurpy*.log`, puis
-accepte aussi les anciens logs `datannurpy*.log` à la racine ou dans `staging/`.
+Without arguments, the script scans `staging/logs/datannurpy*.log`, then also accepts `datannurpy*.log` files at the repository root or in `staging/`.
 
-## Rejouer uniquement la fin du pipeline
+## Rebuild Only the Final Stages
 
-Si `staging/` et `data/` sont déjà remplis, il suffit souvent de relancer:
+If `staging/` and `data/` already exist, the final stages can be rerun with:
 
 ```bash
 uv run python src/build_metadata.py
 uv run python -m datannurpy catalog.yml
 ```
 
-## Vérifications
+## Checks
 
-Vérification statique du code:
+Run all static checks:
 
 ```bash
 make check
 ```
 
-Ou séparément:
+Or run them separately:
 
 ```bash
 uv run ruff check .
@@ -172,9 +164,6 @@ uv run ruff format --check .
 uv run pyright
 ```
 
-## Remarques
+## License
 
-- `staging/` est un état de travail partagé entre formats.
-- `src/download.py` lit directement `staging/resources.jsonl`; l'étape de probe séparée a été supprimée.
-- Le champ `format_key` dans les JSONL reste utilisé en interne pour appliquer les règles propres à chaque format.
-- Le mapping métier vers datannur est documenté dans `MAPPING.md`.
+The pipeline code in this repository is released under the MIT License. Source datasets, metadata, and documentation fetched from opendata.swiss remain governed by their original publisher terms.
