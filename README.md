@@ -1,4 +1,4 @@
-# datannur-opench
+# swiss-open-data
 
 Production pipeline for the public datannur demo catalog at suisse.datannur.com, built from French-language tabular datasets published on opendata.swiss.
 

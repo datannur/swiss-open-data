@@ -1,5 +1,5 @@
 [project]
-name = "datannur-opench"
+name = "swiss-open-data"
 version = "0.1.0"
 license = "MIT"
 requires-python = ">=3.14"

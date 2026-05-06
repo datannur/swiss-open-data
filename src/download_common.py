@@ -7,7 +7,9 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-USER_AGENT = "datannur-opench-crawler/0.1 (+https://github.com/datannur)"
+USER_AGENT = (
+    "swiss-open-data-crawler/0.1 (+https://github.com/datannur/swiss-open-data)"
+)
 TIMEOUT = (15, 120)
 WORKERS = 6
 CHUNK = 1 << 20  # 1 MiB

@@ -25,7 +25,9 @@ from ckanapi.errors import CKANAPIError
 from config import iter_formats, parse_noop_args, staging_dir
 
 CKAN_URL = "https://ckan.opendata.swiss"
-USER_AGENT = "datannur-opench-crawler/0.1 (+https://github.com/datannur)"
+USER_AGENT = (
+    "swiss-open-data-crawler/0.1 (+https://github.com/datannur/swiss-open-data)"
+)
 PAGE_SIZE = 500
 LANGUAGE = "fr"
 TEXT_FALLBACK_ORDER = ("fr", "en", "de", "it")
