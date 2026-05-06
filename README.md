@@ -1,10 +1,10 @@
-# swiss-open-data
-
 ![datannur banner](https://raw.githubusercontent.com/datannur/swiss-open-data/main/public/img/main-banner-dark.png#gh-dark-mode-only)
 ![datannur banner](https://raw.githubusercontent.com/datannur/swiss-open-data/main/public/img/main-banner.png#gh-light-mode-only)
 
 [![MIT License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Demo](https://img.shields.io/badge/demo-live-success)](https://suisse.datannur.com/)
+
+# swiss-open-data
 
 Production pipeline for the public datannur demo catalog at suisse.datannur.com, built from French-language tabular datasets published on opendata.swiss.
 
