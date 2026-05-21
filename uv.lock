@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.14"
 resolution-markers = [
     "sys_platform == 'win32'",
@@ -170,7 +170,7 @@ wheels = [
 
 [[package]]
 name = "datannurpy"
-version = "0.23.0"
+version = "0.24.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography" },
@@ -183,9 +183,9 @@ dependencies = [
     { name = "pyyaml" },
     { name = "xlrd" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/0e/55/fe101b28aba10240fe161910605179dbcacefe817aef3d2bfc0b922d64ba/datannurpy-0.23.0.tar.gz", hash = "sha256:c728a1939494fdf3728577a00c097fd5edc681cc8c49351cfa6b39acd56c27ac", size = 7578095, upload-time = "2026-05-05T21:24:50.164Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b1/4b/72da43024e949544f075c7440fb7769adaa9fc24dd1e77179422f567118d/datannurpy-0.24.1.tar.gz", hash = "sha256:fe28e4cd41ebce4bdc41ce564d848c826a5e70067f107417a81641284bfe9f8d", size = 8386322, upload-time = "2026-05-21T12:07:20.556Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/04/e4/71bbd3ca09683cb62ff5eabf587f77f2b196b2d78f911066866abc86d035/datannurpy-0.23.0-py3-none-any.whl", hash = "sha256:94336664420e924d6609229fd583b4e23e0d4fe99eff944fe65d31ffd4f9b1f2", size = 7645057, upload-time = "2026-05-05T21:24:47.622Z" },
+    { url = "https://files.pythonhosted.org/packages/50/e8/6df69aa178392e6d9212fd4d3978556aa8b137ed1bb8b00fce4f42f6705b/datannurpy-0.24.1-py3-none-any.whl", hash = "sha256:e6881e1935df7b6d2aabd743a3d7cd0c8211dbfd261606cdf233949ecf8e8903", size = 8458582, upload-time = "2026-05-21T12:07:16.999Z" },
 ]
 
 [[package]]
@@ -675,7 +675,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "ckanapi", specifier = ">=4.11" },
-    { name = "datannurpy", specifier = "==0.23.0" },
+    { name = "datannurpy", specifier = "==0.24.1" },
     { name = "requests", specifier = ">=2.33.1" },
 ]
 

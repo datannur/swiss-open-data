@@ -665,18 +665,18 @@ def build_institutions(
         contact = pick_manager_contact(package.get("contact_points"))
         if not contact:
             continue
-        manager_id = manager_contact_id(package.get("contact_points"))
+        manager_organization_id = manager_contact_id(package.get("contact_points"))
         email = contact.get("email")
-        if not manager_id or not email:
+        if not manager_organization_id or not email:
             continue
-        row = manager_contacts.get(manager_id)
+        row = manager_contacts.get(manager_organization_id)
         if row is None:
             row = {
                 "parent_candidates": set(),
                 "name": None,
                 "email": email,
             }
-            manager_contacts[manager_id] = row
+            manager_contacts[manager_organization_id] = row
         if package.get("organization_name"):
             row["parent_candidates"].add(package["organization_name"])
         display_name = contact.get("name")
@@ -687,12 +687,12 @@ def build_institutions(
         ):
             row["name"] = display_name
 
-    for manager_id in sorted(manager_contacts):
-        manager = manager_contacts[manager_id]
+    for manager_organization_id in sorted(manager_contacts):
+        manager = manager_contacts[manager_organization_id]
         parent_candidates = manager["parent_candidates"]
         rows.append(
             {
-                "id": manager_id,
+                "id": manager_organization_id,
                 "parent_id": next(iter(parent_candidates))
                 if len(parent_candidates) == 1
                 else None,
@@ -749,8 +749,8 @@ def build_folders_and_docs(
                 "name": tname,
                 "description": None,
                 "type": "thematique",
-                "owner_id": None,
-                "manager_id": None,
+                "owner_organization_id": None,
+                "manager_organization_id": None,
                 "tag_ids": None,
                 "doc_ids": None,
                 "link": None,
@@ -784,7 +784,7 @@ def build_folders_and_docs(
         org_name = org.get("name")
         title = pick_fr(p.get("title")) or p.get("name") or pid
         description = pick_fr(p.get("description"))
-        manager_id = manager_contact_id(p.get("contact_points"))
+        manager_organization_id = manager_contact_id(p.get("contact_points"))
 
         # Tags: one per group + free keywords (FR)
         thematic_tags = [f"thematique---{g['name']}" for g in groups if g.get("name")]
@@ -814,8 +814,8 @@ def build_folders_and_docs(
                 "name": title,
                 "description": description,
                 "type": "package",
-                "owner_id": org_name,
-                "manager_id": manager_id,
+                "owner_organization_id": org_name,
+                "manager_organization_id": manager_organization_id,
                 "tag_ids": tag_ids or None,
                 "doc_ids": folder_doc_ids,
                 "link": p.get("url"),
@@ -860,7 +860,7 @@ def build_datasets(
         start_date = temporals[0].get("start_date") if temporals else None
         end_date = temporals[0].get("end_date") if temporals else None
         accrual_uri = p.get("accrual_periodicity") or ""
-        manager_id = manager_contact_id(p.get("contact_points"))
+        manager_organization_id = manager_contact_id(p.get("contact_points"))
 
         fmt_value = (res.get("format") or "").upper()
         name_fr = (
@@ -908,8 +908,8 @@ def build_datasets(
             {
                 "id": rid,
                 "folder_id": pid,
-                "owner_id": org.get("name"),
-                "manager_id": manager_id,
+                "owner_organization_id": org.get("name"),
+                "manager_organization_id": manager_organization_id,
                 "tag_ids": None,
                 "doc_ids": dataset_doc_ids,
                 "name": name_fr,
@@ -1009,8 +1009,8 @@ INSTITUTION_COLS = [
 FOLDER_COLS = [
     "id",
     "parent_id",
-    "manager_id",
-    "owner_id",
+    "manager_organization_id",
+    "owner_organization_id",
     "tag_ids",
     "doc_ids",
     "name",
@@ -1029,8 +1029,8 @@ FOLDER_COLS = [
 DATASET_COLS = [
     "id",
     "folder_id",
-    "manager_id",
-    "owner_id",
+    "manager_organization_id",
+    "owner_organization_id",
     "tag_ids",
     "doc_ids",
     "name",
@@ -1151,11 +1151,11 @@ def purge_organizations(
             current = org_by_id[current].get("parent_id")
 
     for row in folders:
-        mark(row.get("owner_id"))
-        mark(row.get("manager_id"))
+        mark(row.get("owner_organization_id"))
+        mark(row.get("manager_organization_id"))
     for row in datasets:
-        mark(row.get("owner_id"))
-        mark(row.get("manager_id"))
+        mark(row.get("owner_organization_id"))
+        mark(row.get("manager_organization_id"))
 
     return [row for row in organizations if row["id"] in keep]
 
@@ -1263,21 +1263,21 @@ def main() -> int:
         if r.get("parent_id") and r["parent_id"] not in folder_ids:
             print(f"  ERR folder {r['id']}: parent_id {r['parent_id']!r} not found")
             errors += 1
-        if r.get("owner_id") and r["owner_id"] not in inst_ids:
-            print(f"  ERR folder {r['id']}: owner_id {r['owner_id']!r} not found")
+        if r.get("owner_organization_id") and r["owner_organization_id"] not in inst_ids:
+            print(f"  ERR folder {r['id']}: owner_organization_id {r['owner_organization_id']!r} not found")
             errors += 1
-        if r.get("manager_id") and r["manager_id"] not in inst_ids:
-            print(f"  ERR folder {r['id']}: manager_id {r['manager_id']!r} not found")
+        if r.get("manager_organization_id") and r["manager_organization_id"] not in inst_ids:
+            print(f"  ERR folder {r['id']}: manager_organization_id {r['manager_organization_id']!r} not found")
             errors += 1
     for r in datasets:
         if r["folder_id"] not in folder_ids:
             print(f"  ERR dataset {r['id']}: folder_id {r['folder_id']!r} not found")
             errors += 1
-        if r.get("owner_id") and r["owner_id"] not in inst_ids:
-            print(f"  ERR dataset {r['id']}: owner_id {r['owner_id']!r} not found")
+        if r.get("owner_organization_id") and r["owner_organization_id"] not in inst_ids:
+            print(f"  ERR dataset {r['id']}: owner_organization_id {r['owner_organization_id']!r} not found")
             errors += 1
-        if r.get("manager_id") and r["manager_id"] not in inst_ids:
-            print(f"  ERR dataset {r['id']}: manager_id {r['manager_id']!r} not found")
+        if r.get("manager_organization_id") and r["manager_organization_id"] not in inst_ids:
+            print(f"  ERR dataset {r['id']}: manager_organization_id {r['manager_organization_id']!r} not found")
             errors += 1
     for r in institutions:
         if r.get("parent_id") and r["parent_id"] not in inst_ids:

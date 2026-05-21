@@ -42,7 +42,7 @@ Each CKAN package becomes one datannur `folder`. The folder preserves the editor
 
 Top-level folders are created from DCAT-AP-CH thematic groups. Packages with one group are placed under that group. Packages with several groups are placed under `multi`; packages without a group are placed under `other`. The same thematic information is also exposed as tags, so users can either browse by folder or filter by tag.
 
-CKAN `organization` is mapped to datannur `owner_id`, because it represents the publisher of the source package. CKAN `contact_points` are mapped to datannur `manager_id` only when a valid email is available. These manager organizations are synthetic, deduplicated globally by email, and attached to both the package folder and its datasets.
+CKAN `organization` is mapped to datannur `owner_organization_id`, because it represents the publisher of the source package. CKAN `contact_points` are mapped to datannur `manager_organization_id` only when a valid email is available. These manager organizations are synthetic, deduplicated globally by email, and attached to both the package folder and its datasets.
 
 The organization hierarchy is lightly reconstructed from CKAN organization metadata and a few project-specific containers, such as national, cantonal, communal, and other institutions. This improves navigation in the demo catalog, but is not meant to be a complete institutional authority file.
 
@@ -64,7 +64,7 @@ PDF URLs found in package and resource metadata are downloaded into the document
 
 - `uv`
 - The Python version defined in `pyproject.toml`
-- Node.js and npm for the final static build and deployment step
+- Playwright for the optional static page build
 
 Install the environment:
 
@@ -125,15 +125,21 @@ uv run python -m datannurpy catalog.yml
 
 Builds the datannur catalog from `metadata/` and `data/`, copies private app configuration from `app_conf/`, then writes the result to `catalog/`.
 
-### 6. Build and Deploy Static Pages
+### 6. Optionally Build Static Pages
 
 ```bash
-cd catalog
-npm install
-npm run static-deploy
+python catalog/datannur.py static
 ```
 
-Builds and publishes the static version of the catalog.
+Builds the static version of the catalog. This step is optional and requires Playwright.
+
+### 7. Deploy the Catalog
+
+```bash
+python catalog/datannur.py deploy
+```
+
+Publishes the catalog.
 
 ## Optional Exclusion Loop
 
