@@ -115,7 +115,7 @@ Downloads documentation PDFs to `staging/docs/` and updates `staging/doc_downloa
 uv run python src/build_metadata.py
 ```
 
-Generates the metadata files consumed by datannurpy in `metadata/`: `organization.csv`, `folder.csv`, `dataset.csv`, `tag.csv`, `doc.csv`, and `config.json`.
+Generates the metadata files consumed by datannurpy in `metadata/`: `organization.csv`, `folder.csv`, `dataset.csv`, `tag.csv`, `doc.csv`, `config.json`, and `configFilter.json`.
 
 ### 5. Build the datannur Catalog
 
@@ -133,10 +133,18 @@ python catalog/datannur.py static
 
 Builds the static version of the catalog. This step is optional and requires Playwright.
 
-### 7. Deploy the Catalog
+### 7. Generate API Documentation
 
 ```bash
-python catalog/datannur.py deploy
+python3 catalog/datannur.py openapi
+```
+
+Generates the static OpenAPI files served under `/api/` from the exported catalog database.
+
+### 8. Deploy the Catalog
+
+```bash
+python3 catalog/datannur.py deploy
 ```
 
 Publishes the catalog.

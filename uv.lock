@@ -170,7 +170,7 @@ wheels = [
 
 [[package]]
 name = "datannurpy"
-version = "0.24.1"
+version = "0.25.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography" },
@@ -183,9 +183,9 @@ dependencies = [
     { name = "pyyaml" },
     { name = "xlrd" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b1/4b/72da43024e949544f075c7440fb7769adaa9fc24dd1e77179422f567118d/datannurpy-0.24.1.tar.gz", hash = "sha256:fe28e4cd41ebce4bdc41ce564d848c826a5e70067f107417a81641284bfe9f8d", size = 8386322, upload-time = "2026-05-21T12:07:20.556Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a8/9f/591ac577a35aaf21116eea0d134f11160fbe9cd31860e742581ff1c23f18/datannurpy-0.25.0.tar.gz", hash = "sha256:7353237aa283d6b00057657184fd8fb67901a924bdd0fbe5a63ac3a1eeaf4da8", size = 8388778, upload-time = "2026-05-26T20:10:06.088Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/50/e8/6df69aa178392e6d9212fd4d3978556aa8b137ed1bb8b00fce4f42f6705b/datannurpy-0.24.1-py3-none-any.whl", hash = "sha256:e6881e1935df7b6d2aabd743a3d7cd0c8211dbfd261606cdf233949ecf8e8903", size = 8458582, upload-time = "2026-05-21T12:07:16.999Z" },
+    { url = "https://files.pythonhosted.org/packages/02/a0/11a4ccf6d98fc9a383520a2e5b44e2620f93e15080b3c180c86740670460/datannurpy-0.25.0-py3-none-any.whl", hash = "sha256:1eff06ed2807879ca08cd5521cfbc8cd5c64fdef222e9faa74587c488451441c", size = 8463003, upload-time = "2026-05-26T20:10:03.689Z" },
 ]
 
 [[package]]
@@ -267,15 +267,15 @@ wheels = [
 
 [[package]]
 name = "jsonjsdb"
-version = "0.8.7"
+version = "0.8.8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "openpyxl" },
     { name = "polars" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e5/22/010236c20f005df0260f908d46ec47f187d323805e15a9ae6387bddde432/jsonjsdb-0.8.7.tar.gz", hash = "sha256:dcb0b41aa5d0810b59c51e3304e29a395eab1801187ef9879b444c7fc7c1a1b0", size = 15913, upload-time = "2026-05-05T20:13:44.102Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/54/34/e99075bf2e72e28399cf44bc38a78135727fe8214f7c9a372329c43945c8/jsonjsdb-0.8.8.tar.gz", hash = "sha256:0607a9df56fb9ba591195cc3dbad0e3dcf54952c4b08b9a7f7128f3b5c99bda8", size = 16017, upload-time = "2026-05-26T14:03:41.327Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ad/09/d49629d098f42dee66c898c8cd779f872550d54b4700a1755cabb0693c2c/jsonjsdb-0.8.7-py3-none-any.whl", hash = "sha256:5fd720a5ba73c50f970cf07ceef98a6d1c7ade9a6b996f3040b20ccae9e028c6", size = 18784, upload-time = "2026-05-05T20:13:42.853Z" },
+    { url = "https://files.pythonhosted.org/packages/26/2a/ba1302074d34529e019f4dba28be4f24532977fb1d2f1f7579bea52d3ba6/jsonjsdb-0.8.8-py3-none-any.whl", hash = "sha256:1ecb1bbae14ce8fcb9a7699e3388d1a5d70179e6d430fe9e0479e5bee6a523d0", size = 18936, upload-time = "2026-05-26T14:03:39.886Z" },
 ]
 
 [[package]]
@@ -675,7 +675,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "ckanapi", specifier = ">=4.11" },
-    { name = "datannurpy", specifier = "==0.24.1" },
+    { name = "datannurpy", specifier = "==0.25.0" },
     { name = "requests", specifier = ">=2.33.1" },
 ]
 

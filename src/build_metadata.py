@@ -1246,12 +1246,13 @@ def main() -> int:
     write_csv(META_DIR / "tag.csv", TAG_COLS, tags)
     write_csv(META_DIR / "doc.csv", DOC_COLS, docs)
 
-    config_source = PUBLIC_DIR / "config.json"
-    config_target = META_DIR / "config.json"
-    shutil.copy2(config_source, config_target)
-    print(
-        f"  copied {config_source.relative_to(ROOT)} -> {config_target.relative_to(ROOT)}"
-    )
+    for config_name in ("config.json", "configFilter.json"):
+        config_source = PUBLIC_DIR / config_name
+        config_target = META_DIR / config_name
+        shutil.copy2(config_source, config_target)
+        print(
+            f"  copied {config_source.relative_to(ROOT)} -> {config_target.relative_to(ROOT)}"
+        )
 
     # Sanity: detect FK issues
     print("\nSanity checks…")
@@ -1263,21 +1264,41 @@ def main() -> int:
         if r.get("parent_id") and r["parent_id"] not in folder_ids:
             print(f"  ERR folder {r['id']}: parent_id {r['parent_id']!r} not found")
             errors += 1
-        if r.get("owner_organization_id") and r["owner_organization_id"] not in inst_ids:
-            print(f"  ERR folder {r['id']}: owner_organization_id {r['owner_organization_id']!r} not found")
+        if (
+            r.get("owner_organization_id")
+            and r["owner_organization_id"] not in inst_ids
+        ):
+            print(
+                f"  ERR folder {r['id']}: owner_organization_id {r['owner_organization_id']!r} not found"
+            )
             errors += 1
-        if r.get("manager_organization_id") and r["manager_organization_id"] not in inst_ids:
-            print(f"  ERR folder {r['id']}: manager_organization_id {r['manager_organization_id']!r} not found")
+        if (
+            r.get("manager_organization_id")
+            and r["manager_organization_id"] not in inst_ids
+        ):
+            print(
+                f"  ERR folder {r['id']}: manager_organization_id {r['manager_organization_id']!r} not found"
+            )
             errors += 1
     for r in datasets:
         if r["folder_id"] not in folder_ids:
             print(f"  ERR dataset {r['id']}: folder_id {r['folder_id']!r} not found")
             errors += 1
-        if r.get("owner_organization_id") and r["owner_organization_id"] not in inst_ids:
-            print(f"  ERR dataset {r['id']}: owner_organization_id {r['owner_organization_id']!r} not found")
+        if (
+            r.get("owner_organization_id")
+            and r["owner_organization_id"] not in inst_ids
+        ):
+            print(
+                f"  ERR dataset {r['id']}: owner_organization_id {r['owner_organization_id']!r} not found"
+            )
             errors += 1
-        if r.get("manager_organization_id") and r["manager_organization_id"] not in inst_ids:
-            print(f"  ERR dataset {r['id']}: manager_organization_id {r['manager_organization_id']!r} not found")
+        if (
+            r.get("manager_organization_id")
+            and r["manager_organization_id"] not in inst_ids
+        ):
+            print(
+                f"  ERR dataset {r['id']}: manager_organization_id {r['manager_organization_id']!r} not found"
+            )
             errors += 1
     for r in institutions:
         if r.get("parent_id") and r["parent_id"] not in inst_ids:
