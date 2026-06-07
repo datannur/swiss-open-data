@@ -1,6 +1,6 @@
 """
-Crawl opendata.swiss for French-language datasets exposing the configured
-resource formats.
+Crawl opendata.swiss for French- and English-language datasets exposing the
+configured resource formats.
 
 Outputs are appended to the shared staging directory. Packages are deduped by
 package id; resources stay one line per CKAN resource and carry their format in
@@ -29,25 +29,59 @@ USER_AGENT = (
     "swiss-open-data-crawler/0.1 (+https://github.com/datannur/swiss-open-data)"
 )
 PAGE_SIZE = 500
-LANGUAGE = "fr"
-TEXT_FALLBACK_ORDER = ("fr", "en", "de", "it")
+LANGUAGES = ("fr", "en")
 URL_RE = re.compile(r'https?://[^\s<>"\']+')
 
 
-def pick_localized_text(
+def project_localized_text(
     value: dict[str, Any] | str | None,
-    fallback_order: tuple[str, ...] = TEXT_FALLBACK_ORDER,
-) -> str | None:
+    keep_languages: tuple[str, ...] = ("en", "fr"),
+) -> dict[str, str] | str | None:
     if value is None:
         return None
     if isinstance(value, str):
         return value or None
     if isinstance(value, dict):
-        for lang in fallback_order:
-            text = value.get(lang)
-            if isinstance(text, str) and text:
-                return text
+        projected = {
+            lang: text
+            for lang in keep_languages
+            if isinstance((text := value.get(lang)), str) and text
+        }
+        return projected or None
     return None
+
+
+def project_contact_points(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for entry in value:
+        if not isinstance(entry, dict):
+            continue
+        projected: dict[str, Any] = {}
+        name = project_localized_text(entry.get("name"))
+        email = entry.get("email")
+        if name:
+            projected["name"] = name
+        if email:
+            projected["email"] = email
+        if projected:
+            out.append(projected)
+    return out
+
+
+def project_keywords(value: Any) -> dict[str, list[str]]:
+    if not isinstance(value, dict):
+        return {}
+    out: dict[str, list[str]] = {}
+    for lang in ("en", "fr"):
+        items = value.get(lang)
+        if not isinstance(items, list):
+            continue
+        filtered = [item for item in items if isinstance(item, str) and item]
+        if filtered:
+            out[lang] = filtered
+    return out
 
 
 def resource_matches_language(res: dict[str, Any]) -> bool:
@@ -55,8 +89,8 @@ def resource_matches_language(res: dict[str, Any]) -> bool:
     if not languages:
         return True
     if isinstance(languages, str):
-        return languages == LANGUAGE
-    return LANGUAGE in languages
+        return languages in LANGUAGES
+    return any(lang in LANGUAGES for lang in languages)
 
 
 def extract_urls(value: Any) -> list[str]:
@@ -137,9 +171,9 @@ def extract_resources(
                 "format_key": format_key,
                 "package_id": pkg.get("id"),
                 "resource_id": res.get("id"),
-                "name": pick_localized_text(res.get("name")),
-                "title": pick_localized_text(res.get("title")),
-                "description": pick_localized_text(res.get("description")),
+                "name": project_localized_text(res.get("name")),
+                "title": project_localized_text(res.get("title")),
+                "description": project_localized_text(res.get("description")),
                 "language": res.get("language"),
                 "format": res.get("format"),
                 "url": url,
@@ -156,9 +190,9 @@ def extract_resources(
 def project_organization(org: dict[str, Any]) -> dict[str, Any]:
     return {
         "name": org.get("name"),
-        "title": pick_localized_text(org.get("title")),
-        "display_name": pick_localized_text(org.get("display_name")),
-        "description": pick_localized_text(org.get("description")),
+        "title": project_localized_text(org.get("title")),
+        "display_name": project_localized_text(org.get("display_name")),
+        "description": project_localized_text(org.get("description")),
         "political_level": org.get("political_level"),
         "groups": [
             {"name": group.get("name")}
@@ -174,19 +208,19 @@ def project_package(pkg: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": pkg.get("id"),
         "name": pkg.get("name"),
-        "title": pick_localized_text(pkg.get("title")),
-        "description": pick_localized_text(pkg.get("description")),
+        "title": project_localized_text(pkg.get("title")),
+        "description": project_localized_text(pkg.get("description")),
         "url": pkg.get("url"),
         "documentation_urls": extract_urls(pkg.get("documentation")),
         "relation_urls": extract_urls(pkg.get("relations")),
-        "spatial": pkg.get("spatial"),
-        "contact_points": pkg.get("contact_points") or [],
+        "spatial": project_localized_text(pkg.get("spatial")),
+        "contact_points": project_contact_points(pkg.get("contact_points")),
         "license_id": pkg.get("license_id"),
         "license_title": pkg.get("license_title"),
         "modified": pkg.get("modified"),
         "metadata_modified": pkg.get("metadata_modified"),
         "accrual_periodicity": pkg.get("accrual_periodicity"),
-        "keywords": {"fr": ((pkg.get("keywords") or {}).get("fr") or [])},
+        "keywords": project_keywords(pkg.get("keywords")),
         "temporals": [
             {
                 "start_date": temporal.get("start_date"),
@@ -207,13 +241,14 @@ def load_jsonl_by_key(path: Path, key: str) -> dict[str, dict[str, Any]]:
     if not path.exists():
         return {}
     rows: dict[str, dict[str, Any]] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        row = json.loads(line)
-        row_key = row.get(key)
-        if row_key:
-            rows[row_key] = row
+    with path.open(encoding="utf-8") as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            row_key = row.get(key)
+            if row_key:
+                rows[row_key] = row
     return rows
 
 
@@ -261,7 +296,8 @@ def main() -> int:
         fmt.key: {"packages_with_resources": 0, "resources": 0} for fmt in formats
     }
 
-    fq = f"language:{LANGUAGE}"
+    language_clause = " OR ".join(LANGUAGES)
+    fq = f"language:({language_clause})"
     ckan = RemoteCKAN(CKAN_URL, user_agent=USER_AGENT)
 
     n_packages = 0

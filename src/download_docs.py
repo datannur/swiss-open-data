@@ -109,16 +109,17 @@ def load_existing_doc_manifest(manifest_file: Path) -> dict[str, dict[str, Any]]
     if not manifest_file.exists():
         return {}
     entries: dict[str, dict[str, Any]] = {}
-    for line in manifest_file.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        try:
-            entry = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        source_url = entry.get("source_url")
-        if source_url:
-            entries[source_url] = normalize_doc_download_state_entry(entry)
+    with manifest_file.open(encoding="utf-8") as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            source_url = entry.get("source_url")
+            if source_url:
+                entries[source_url] = normalize_doc_download_state_entry(entry)
     return entries
 
 
@@ -141,25 +142,26 @@ def iter_staged_doc_candidates(staging: Path) -> list[dict[str, str]]:
         fp = staging / name
         if not fp.exists():
             continue
-        for line in fp.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            payload = json.loads(line)
-            for url in extract_pdf_urls(
-                payload.get("url"),
-                payload.get("description"),
-                payload.get("documentation_urls"),
-                payload.get("relation_urls"),
-            ):
-                doc_id = pdf_doc_id(url)
-                candidates.setdefault(
-                    url,
-                    {
-                        "doc_id": doc_id,
-                        "source_url": url,
-                        "export_path": str(exported_doc_rel_path(doc_id)),
-                    },
-                )
+        with fp.open(encoding="utf-8") as fh:
+            for line in fh:
+                if not line.strip():
+                    continue
+                payload = json.loads(line)
+                for url in extract_pdf_urls(
+                    payload.get("url"),
+                    payload.get("description"),
+                    payload.get("documentation_urls"),
+                    payload.get("relation_urls"),
+                ):
+                    doc_id = pdf_doc_id(url)
+                    candidates.setdefault(
+                        url,
+                        {
+                            "doc_id": doc_id,
+                            "source_url": url,
+                            "export_path": str(exported_doc_rel_path(doc_id)),
+                        },
+                    )
     return [candidates[url] for url in sorted(candidates)]
 
 

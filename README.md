@@ -101,6 +101,14 @@ uv run python src/download.py
 
 Downloads tabular files to `data/` and updates `staging/download_state.jsonl`. The command is idempotent: existing files are skipped. It can be rerun to retry failed downloads.
 
+To prune local files for resources that are no longer present in the current `staging/resources.jsonl`, run:
+
+```bash
+uv run python src/download.py --prune
+```
+
+This removes stale files from `data/` and drops their entries from `staging/download_state.jsonl` before continuing with the normal download pass.
+
 ### 3. Download Documentation PDFs
 
 ```bash
@@ -115,7 +123,9 @@ Downloads documentation PDFs to `staging/docs/` and updates `staging/doc_downloa
 uv run python src/build_metadata.py
 ```
 
-Generates the metadata files consumed by datannurpy in `metadata/`: `organization.csv`, `folder.csv`, `dataset.csv`, `tag.csv`, `doc.csv`, `config.json`, and `configFilter.json`.
+Generates the metadata CSV files consumed by datannurpy in `metadata/`: `organization.csv`, `folder.csv`, `dataset.csv`, `tag.csv`, and `doc.csv`.
+
+During the same step, the manually maintained catalog configuration files `public/config.json` and `public/configFilter.json` are copied into `metadata/`.
 
 ### 5. Build the datannur Catalog
 
@@ -125,23 +135,31 @@ uv run python -m datannurpy catalog.yml
 
 Builds the datannur catalog from `metadata/` and `data/`, copies private app configuration from `app_conf/`, then writes the result to `catalog/`.
 
-### 6. Optionally Build Static Pages
-
-```bash
-python catalog/datannur.py static
-```
-
-Builds the static version of the catalog. This step is optional and requires Playwright.
-
-### 7. Generate API Documentation
+### 6. Optionally Generate API Documentation
 
 ```bash
 python3 catalog/datannur.py openapi
 ```
 
-Generates the static OpenAPI files served under `/api/` from the exported catalog database.
+Generates the static OpenAPI files served under `/api/` from the exported catalog database in `catalog/data/db`. This step is optional and does not depend on the static page build.
 
-### 8. Deploy the Catalog
+### 7. Optionally Export DCAT Artifacts
+
+```bash
+uv run python src/export_dcat.py
+```
+
+Exports DCAT interoperability artifacts from the exported catalog database. This project uses a repo-owned wrapper rather than editing the generated `catalog/` app scripts directly, so the step remains durable across catalog rebuilds.
+
+### 8. Optionally Build Static Pages
+
+```bash
+python3 catalog/datannur.py static
+```
+
+Builds the static version of the catalog. This step is optional and requires Playwright.
+
+### 9. Deploy the Catalog
 
 ```bash
 python3 catalog/datannur.py deploy

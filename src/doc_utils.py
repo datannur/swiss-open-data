@@ -25,6 +25,10 @@ def extract_pdf_urls(*values: Any) -> list[str]:
                 seen.add(url)
                 out.append(url)
             return
+        if isinstance(value, dict):
+            for item in value.values():
+                visit(item)
+            return
         if isinstance(value, (list, tuple, set)):
             for item in value:
                 visit(item)

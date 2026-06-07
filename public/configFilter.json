@@ -1,18 +1,20 @@
 [
   {
     "id": "license-free",
-    "name": "Libre",
+    "name": "Open",
+    "name:fr": "Libre",
     "entity": "dataset",
     "field": "type",
-    "value": "Libre",
+    "value": "Open",
     "is_active_default": true
   },
   {
     "id": "license-on-request",
-    "name": "Sur demande",
+    "name": "On request",
+    "name:fr": "Sur demande",
     "entity": "dataset",
     "field": "type",
-    "value": "Sur demande",
+    "value": "On request",
     "is_active_default": true
   }
 ]

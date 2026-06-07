@@ -22,11 +22,14 @@ CSV handling:
 from __future__ import annotations
 
 import csv
+import difflib
 import json
 import re
 import shutil
 import sys
+import unicodedata
 from collections import defaultdict
+from collections import Counter
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -40,6 +43,7 @@ ROOT = Path(__file__).resolve().parent.parent
 STAGING_DIR = ROOT / "staging"
 META_DIR = ROOT / "metadata"
 PUBLIC_DIR = ROOT / "public"
+KEYWORD_TRANSLATIONS_FILE = ROOT / "src" / "keyword_translations.json"
 META_DIR.mkdir(exist_ok=True)
 
 
@@ -49,6 +53,20 @@ META_DIR.mkdir(exist_ok=True)
 
 # DCAT-AP-CH thematic groups observed in the corpus. Labels are official
 # (taken from the CKAN group display_name.fr when available).
+DCAT_GROUPS_EN: dict[str, str] = {
+    "econ": "Economy and finance",
+    "soci": "Population and society",
+    "envi": "Environment",
+    "regi": "Regions and cities",
+    "just": "Justice, legal system and public safety",
+    "educ": "Education, culture and sport",
+    "heal": "Health",
+    "agri": "Agriculture, fisheries, forestry and food",
+    "tran": "Transport",
+    "gove": "Public administration",
+    "ener": "Energy",
+    "tech": "Science and technology",
+}
 DCAT_GROUPS_FR: dict[str, str] = {
     "econ": "Économie et finances",
     "soci": "Population et société",
@@ -64,29 +82,42 @@ DCAT_GROUPS_FR: dict[str, str] = {
     "tech": "Science et technologie",
 }
 # Extra thematic roots (not DCAT groups)
+EXTRA_ROOTS_EN: dict[str, str] = {
+    "multi": "Multiple themes",
+    "other": "Other topics",
+}
 EXTRA_ROOTS_FR: dict[str, str] = {
     "multi": "Multi-thématiques",
     "other": "Hors thématique",
 }
 
 # Institutions the script creates itself (not publishing orgs in CKAN).
-# id → (parent_id, name_fr)
-VIRTUAL_INSTITUTIONS: dict[str, tuple[str | None, str]] = {
-    "suisse": (None, "Suisse"),
-    "confederation": ("suisse", "Confédération"),
-    "cantons": ("suisse", "Cantons"),
-    "autres": ("suisse", "Autres institutions"),
+# id → (parent_id, name_en, name_fr)
+VIRTUAL_INSTITUTIONS: dict[str, tuple[str | None, str, str]] = {
+    "suisse": (None, "Switzerland", "Suisse"),
+    "confederation": ("suisse", "Swiss Confederation", "Confédération"),
+    "cantons": ("suisse", "Cantons", "Cantons"),
+    "autres": ("suisse", "Other institutions", "Autres institutions"),
     # Cantons without a "Canton of X" publishing org
-    "kanton_freiburg": ("cantons", "Canton de Fribourg"),
-    "kanton-vaud": ("cantons", "Canton de Vaud"),
+    "kanton_freiburg": ("cantons", "Canton of Fribourg", "Canton de Fribourg"),
+    "kanton-vaud": ("cantons", "Canton of Vaud", "Canton de Vaud"),
     # "Communes" container under each canton that has communes
-    "communes-kanton-bern-2": ("kanton-bern-2", "Communes"),
-    "communes-kanton-vaud": ("kanton-vaud", "Communes"),
+    "communes-kanton-bern-2": ("kanton-bern-2", "Municipalities", "Communes"),
+    "communes-kanton-vaud": ("kanton-vaud", "Municipalities", "Communes"),
     # Virtual city grouping 4 publishing services
-    "biel-bienne": ("communes-kanton-bern-2", "Ville de Bienne"),
+    "biel-bienne": ("communes-kanton-bern-2", "City of Biel/Bienne", "Ville de Bienne"),
     # Non-publishing parents referenced by CKAN organisation.groups[]
-    "eth-zuerich": ("autres", "ETH Zürich"),
-    "schweizerische-bundesbahnen-sbb": ("autres", "Chemins de fer fédéraux CFF"),
+    "eth-zuerich": ("autres", "ETH Zurich", "ETH Zürich"),
+    "wsl": (
+        "autres",
+        "Swiss Federal Institute for Forest, Snow and Landscape Research WSL",
+        "Institut fédéral de recherches sur la forêt, la neige et le paysage WSL",
+    ),
+    "schweizerische-bundesbahnen-sbb": (
+        "autres",
+        "Swiss Federal Railways SBB",
+        "Chemins de fer fédéraux CFF",
+    ),
 }
 
 # Commune-level publishing orgs (with no CKAN parent group) → their canton
@@ -94,32 +125,32 @@ COMMUNE_TO_COMMUNES_CONTAINER: dict[str, str] = {
     "lausanne": "communes-kanton-vaud",
 }
 
-# CKAN accrual_periodicity URIs → FR labels
-ACCRUAL_FR: dict[str, str] = {
-    "http://publications.europa.eu/resource/authority/frequency/CONT": "continu",
-    "http://publications.europa.eu/resource/authority/frequency/DAILY": "quotidien",
-    "http://publications.europa.eu/resource/authority/frequency/WEEKLY": "hebdomadaire",
-    "http://publications.europa.eu/resource/authority/frequency/BIWEEKLY": "bi-hebdomadaire",
-    "http://publications.europa.eu/resource/authority/frequency/MONTHLY": "mensuel",
-    "http://publications.europa.eu/resource/authority/frequency/BIMONTHLY": "bimestriel",
-    "http://publications.europa.eu/resource/authority/frequency/QUARTERLY": "trimestriel",
-    "http://publications.europa.eu/resource/authority/frequency/ANNUAL": "annuel",
-    "http://publications.europa.eu/resource/authority/frequency/ANNUAL_2": "semestriel",
-    "http://publications.europa.eu/resource/authority/frequency/ANNUAL_3": "tous les 4 mois",
-    "http://publications.europa.eu/resource/authority/frequency/BIENNIAL": "biennal",
-    "http://publications.europa.eu/resource/authority/frequency/TRIENNIAL": "triennal",
-    "http://publications.europa.eu/resource/authority/frequency/IRREG": "irrégulier",
-    "http://publications.europa.eu/resource/authority/frequency/UNKNOWN": "inconnue",
-    "http://publications.europa.eu/resource/authority/frequency/OTHER": "autre",
-    "http://publications.europa.eu/resource/authority/frequency/NEVER": "pas de mise à jour",
-    "http://publications.europa.eu/resource/authority/frequency/OP_DATPRO": "provisoire",
+# CKAN accrual_periodicity URIs → EN labels
+ACCRUAL_EN: dict[str, str] = {
+    "http://publications.europa.eu/resource/authority/frequency/CONT": "continuous",
+    "http://publications.europa.eu/resource/authority/frequency/DAILY": "daily",
+    "http://publications.europa.eu/resource/authority/frequency/WEEKLY": "weekly",
+    "http://publications.europa.eu/resource/authority/frequency/BIWEEKLY": "biweekly",
+    "http://publications.europa.eu/resource/authority/frequency/MONTHLY": "monthly",
+    "http://publications.europa.eu/resource/authority/frequency/BIMONTHLY": "bimonthly",
+    "http://publications.europa.eu/resource/authority/frequency/QUARTERLY": "quarterly",
+    "http://publications.europa.eu/resource/authority/frequency/ANNUAL": "annual",
+    "http://publications.europa.eu/resource/authority/frequency/ANNUAL_2": "semiannual",
+    "http://publications.europa.eu/resource/authority/frequency/ANNUAL_3": "every 4 months",
+    "http://publications.europa.eu/resource/authority/frequency/BIENNIAL": "biennial",
+    "http://publications.europa.eu/resource/authority/frequency/TRIENNIAL": "triennial",
+    "http://publications.europa.eu/resource/authority/frequency/IRREG": "irregular",
+    "http://publications.europa.eu/resource/authority/frequency/UNKNOWN": "unknown",
+    "http://publications.europa.eu/resource/authority/frequency/OTHER": "other",
+    "http://publications.europa.eu/resource/authority/frequency/NEVER": "no updates",
+    "http://publications.europa.eu/resource/authority/frequency/OP_DATPRO": "provisional",
 }
 
-POLITICAL_LEVEL_FR: dict[str, str] = {
-    "confederation": "Confédération",
+POLITICAL_LEVEL_EN: dict[str, str] = {
+    "confederation": "Confederation",
     "canton": "Canton",
     "commune": "Commune",
-    "other": "Autre",
+    "other": "Other",
 }
 
 
@@ -137,9 +168,9 @@ SPATIAL_PLACEHOLDERS = {
     "informations generales",
 }
 SPATIAL_CANONICAL = {
-    "switzerland": "Suisse",
-    "schweiz": "Suisse",
-    "suisse": "Suisse",
+    "switzerland": "Switzerland",
+    "schweiz": "Switzerland",
+    "suisse": "Switzerland",
 }
 OPENDATA_SWISS_LICENSE_LABELS = {
     "terms_by": "Opendata.swiss BY",
@@ -158,19 +189,44 @@ def slugify(s: str) -> str:
     return s.strip("-")
 
 
-def pick_fr(ml: dict | str | None, fallback_order=("fr", "en", "de", "it")) -> str:
-    """Return the French value from a multilingual CKAN dict, falling back
-    to other languages, then to the raw string, then to empty."""
+def pick_text(
+    ml: dict | str | None,
+    preferred_lang: str | None = None,
+    fallback_order: tuple[str, ...] = (),
+) -> str:
+    """Return a preferred localized value, falling back to other languages.
+
+    Raw strings are treated as already-resolved default text.
+    """
     if ml is None:
         return ""
     if isinstance(ml, str):
         return ml
     if isinstance(ml, dict):
+        if preferred_lang:
+            value = ml.get(preferred_lang)
+            if value:
+                return value
         for lang in fallback_order:
             v = ml.get(lang)
             if v:
                 return v
     return ""
+
+
+def pick_default_text(ml: dict | str | None) -> str:
+    return pick_text(ml, preferred_lang="en", fallback_order=("fr",))
+
+
+def pick_fr(ml: dict | str | None) -> str:
+    return pick_text(ml, preferred_lang="fr", fallback_order=("en",))
+
+
+def pick_exact_lang(ml: dict | str | None, lang: str) -> str:
+    if not isinstance(ml, dict):
+        return ""
+    value = ml.get(lang)
+    return value if isinstance(value, str) and value else ""
 
 
 def join_ids(ids) -> str:
@@ -191,6 +247,91 @@ def normalize_text(value: Any) -> str | None:
         return None
     text = _WHITESPACE_RE.sub(" ", str(value)).strip()
     return text or None
+
+
+def fold_text(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", value)
+    return "".join(char for char in normalized if not unicodedata.combining(char))
+
+
+def keyword_lexical_similarity(name_en: str, name_fr: str) -> float:
+    left = fold_text(slugify(name_en)).replace("-", "")
+    right = fold_text(slugify(name_fr)).replace("-", "")
+    if not left or not right:
+        return 0.0
+    return difflib.SequenceMatcher(a=left, b=right).ratio()
+
+
+def classify_keyword_translation_candidate(
+    name_en: str,
+    name_fr: str,
+    *,
+    cooccurrence: int,
+    positional: int,
+    ratio_en: float,
+    ratio_fr: float,
+    second: int,
+) -> tuple[str, str]:
+    lexical_similarity = keyword_lexical_similarity(name_en, name_fr)
+    en_folded = fold_text(slugify(name_en))
+    fr_folded = fold_text(slugify(name_fr))
+
+    if en_folded == fr_folded:
+        return "freeze", "identity"
+    if (
+        lexical_similarity >= 0.82
+        and ratio_en >= 0.9
+        and ratio_fr >= 0.75
+        and second <= cooccurrence * 0.8
+    ):
+        return "freeze", "lexical-cognate"
+    if (
+        positional >= 2
+        and ratio_en >= 0.9
+        and ratio_fr >= 0.9
+        and second == 0
+        and lexical_similarity >= 0.6
+    ):
+        return "freeze", "isolated-alignment"
+    if positional >= 1 and ratio_en >= 0.9 and ratio_fr >= 0.9:
+        return "consider", "strong-alignment"
+    if second >= cooccurrence * 0.8:
+        return "review", "competitive-match"
+    if lexical_similarity >= 0.7 and ratio_en >= 0.75 and ratio_fr >= 0.6:
+        return "consider", "possible-cognate"
+    return "review", "contextual-match"
+
+
+def normalize_keyword_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [text for keyword in value if (text := normalize_text(keyword))]
+
+
+def pick_best_keyword_match(
+    counts: dict[str, int],
+) -> tuple[str, int, str | None, int] | None:
+    if not counts:
+        return None
+
+    best_name: str | None = None
+    best_count = -1
+    second_name: str | None = None
+    second_count = 0
+    for name, count in counts.items():
+        if count > best_count or (
+            count == best_count and (best_name is None or name < best_name)
+        ):
+            second_name, second_count = best_name, best_count if best_count >= 0 else 0
+            best_name, best_count = name, count
+        elif count > second_count or (
+            count == second_count and (second_name is None or name < second_name)
+        ):
+            second_name, second_count = name, count
+
+    if best_name is None:
+        return None
+    return best_name, best_count, second_name, second_count
 
 
 def iter_text_values(value: Any):
@@ -248,7 +389,7 @@ def normalize_contact_points(value: Any) -> list[dict[str, str]]:
     for entry in value:
         if not isinstance(entry, dict):
             continue
-        name = normalize_text(pick_fr(entry.get("name")) or entry.get("name"))
+        name = normalize_text(pick_default_text(entry.get("name")) or entry.get("name"))
         email = normalize_email(entry.get("email"))
         if not name and not email:
             continue
@@ -283,7 +424,7 @@ def manager_contact_id(value: Any) -> str | None:
 
 
 def pick_localisation(package: dict, organization: dict) -> str | None:
-    return pick_clean_spatial(package.get("spatial")) or POLITICAL_LEVEL_FR.get(
+    return pick_clean_spatial(package.get("spatial")) or POLITICAL_LEVEL_EN.get(
         organization.get("political_level") or ""
     )
 
@@ -309,8 +450,8 @@ def dataset_license_label(resource: dict) -> str | None:
 
 def dataset_type_label(license_label: str | None) -> str:
     if license_label == "Opendata.swiss BY ASK":
-        return "Sur demande"
-    return "Libre"
+        return "On request"
+    return "Open"
 
 
 def folder_license_label(package: dict, package_resources: list[dict]) -> str | None:
@@ -329,6 +470,250 @@ def folder_license_label(package: dict, package_resources: list[dict]) -> str | 
     if not resource_labels:
         return package_label
     return None
+
+
+def build_keyword_translation_map(
+    packages: dict[str, dict],
+    base_translations: dict[str, str] | None = None,
+    min_count: int = 3,
+) -> dict[str, str]:
+    return analyze_keyword_translations(packages, base_translations, min_count)[
+        "translations"
+    ]
+
+
+def analyze_keyword_translations(
+    packages: dict[str, dict],
+    base_translations: dict[str, str] | None = None,
+    min_count: int = 3,
+) -> dict[str, Any]:
+    pair_counts: dict[tuple[str, str], int] = defaultdict(int)
+    en_totals: dict[str, int] = defaultdict(int)
+    fr_totals: dict[str, int] = defaultdict(int)
+    cooccurrence_counts: dict[str, dict[str, int]] = defaultdict(
+        lambda: defaultdict(int)
+    )
+    positional_counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+
+    for package in packages.values():
+        keywords = package.get("keywords")
+        if not isinstance(keywords, dict):
+            continue
+        normalized_en = normalize_keyword_list(keywords.get("en"))
+        normalized_fr = normalize_keyword_list(keywords.get("fr"))
+
+        for name_en in {name for name in normalized_en if name}:
+            en_totals[name_en] += 1
+            for name_fr in {name for name in normalized_fr if name}:
+                cooccurrence_counts[name_en][name_fr] += 1
+        for name_fr in {name for name in normalized_fr if name}:
+            fr_totals[name_fr] += 1
+        if len(normalized_en) == len(normalized_fr):
+            for name_en, name_fr in zip(normalized_en, normalized_fr):
+                if name_en and name_fr:
+                    positional_counts[name_en][name_fr] += 1
+
+        if len(normalized_en) != 1 or len(normalized_fr) != 1:
+            continue
+
+        name_en = normalized_en[0]
+        name_fr = normalized_fr[0]
+        if not name_en or not name_fr:
+            continue
+
+        pair_counts[(name_en, name_fr)] += 1
+
+    translations: dict[str, str] = dict(base_translations or {})
+    translation_sources: dict[str, str] = {
+        name_en: "frozen" for name_en in translations
+    }
+    fr_to_en: dict[str, str] = {
+        name_fr: name_en for name_en, name_fr in translations.items()
+    }
+    for (name_en, name_fr), count in pair_counts.items():
+        if name_en in translations or name_fr in fr_to_en:
+            continue
+        if count < min_count:
+            continue
+        if count != en_totals[name_en] or count != fr_totals[name_fr]:
+            continue
+        translations[name_en] = name_fr
+        translation_sources[name_en] = "singleton"
+        fr_to_en[name_fr] = name_en
+
+    candidates: list[tuple[int, int, int, str, str]] = []
+    for name_en, counts in cooccurrence_counts.items():
+        if name_en in translations:
+            continue
+        match = pick_best_keyword_match(counts)
+        if match is None:
+            continue
+        name_fr, cooccurrence, _, second = match
+        if name_fr in fr_to_en:
+            continue
+        positional = positional_counts[name_en].get(name_fr, 0)
+        total_en = en_totals[name_en]
+        total_fr = fr_totals[name_fr]
+
+        if cooccurrence < min_count:
+            continue
+        if positional < 2:
+            continue
+        if cooccurrence / total_en < 0.8:
+            continue
+        if cooccurrence / total_fr < 0.8:
+            continue
+        if second and cooccurrence / second < 2:
+            continue
+
+        candidates.append((cooccurrence, positional, total_en, name_en, name_fr))
+
+    for _, _, _, name_en, name_fr in sorted(
+        candidates, key=lambda item: (-item[0], -item[1], -item[2], item[3])
+    ):
+        if name_en in translations or name_fr in fr_to_en:
+            continue
+        translations[name_en] = name_fr
+        translation_sources[name_en] = "cooccurrence"
+        fr_to_en[name_fr] = name_en
+
+    review_candidates: list[dict[str, Any]] = []
+    for name_en, counts in cooccurrence_counts.items():
+        if name_en in translations:
+            continue
+        match = pick_best_keyword_match(counts)
+        if match is None:
+            continue
+        name_fr, cooccurrence, second_name_fr, second = match
+        if name_fr in fr_to_en:
+            continue
+        positional = positional_counts[name_en].get(name_fr, 0)
+        total_en = en_totals[name_en]
+        total_fr = fr_totals[name_fr]
+        ratio_en = cooccurrence / total_en if total_en else 0.0
+        ratio_fr = cooccurrence / total_fr if total_fr else 0.0
+        lexical_similarity = keyword_lexical_similarity(name_en, name_fr)
+        recommendation, rationale = classify_keyword_translation_candidate(
+            name_en,
+            name_fr,
+            cooccurrence=cooccurrence,
+            positional=positional,
+            ratio_en=ratio_en,
+            ratio_fr=ratio_fr,
+            second=second,
+        )
+
+        if cooccurrence < 2 and positional < 1:
+            continue
+        if ratio_en < 0.5 or ratio_fr < 0.5:
+            continue
+
+        review_candidates.append(
+            {
+                "keyword_en": name_en,
+                "keyword_fr": name_fr,
+                "cooccurrence": cooccurrence,
+                "positional": positional,
+                "en_occurrences": total_en,
+                "fr_occurrences": total_fr,
+                "cooccurrence_ratio_en": round(ratio_en, 4),
+                "cooccurrence_ratio_fr": round(ratio_fr, 4),
+                "second_best_keyword_fr": second_name_fr,
+                "second_best_cooccurrence": second,
+                "lexical_similarity": round(lexical_similarity, 4),
+                "recommendation": recommendation,
+                "rationale": rationale,
+            }
+        )
+
+    review_candidates.sort(
+        key=lambda row: (
+            str(row["recommendation"]) != "freeze",
+            str(row["recommendation"]) != "consider",
+            -int(row["cooccurrence"]),
+            -int(row["positional"]),
+            -float(row["cooccurrence_ratio_en"]),
+            -float(row["cooccurrence_ratio_fr"]),
+            str(row["keyword_en"]),
+        )
+    )
+
+    return {
+        "translations": translations,
+        "translation_sources": translation_sources,
+        "review_candidates": review_candidates,
+    }
+
+
+def load_keyword_translation_overrides() -> dict[str, str]:
+    if not KEYWORD_TRANSLATIONS_FILE.exists():
+        return {}
+
+    payload = json.loads(KEYWORD_TRANSLATIONS_FILE.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("keyword_translations.json must contain an object")
+
+    translations: dict[str, str] = {}
+    seen_fr: set[str] = set()
+    for raw_en, raw_fr in sorted(payload.items()):
+        name_en = normalize_text(raw_en)
+        name_fr = normalize_text(raw_fr)
+        if not name_en or not name_fr:
+            continue
+        if name_fr in seen_fr:
+            raise ValueError(
+                f"Duplicate French keyword translation target: {name_fr!r}"
+            )
+        translations[name_en] = name_fr
+        seen_fr.add(name_fr)
+
+    return translations
+
+
+def write_json(path: Path, payload: Any) -> None:
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    print(f"  wrote {path.relative_to(ROOT)}")
+
+
+def iter_keyword_entries(
+    package: dict, keyword_translations: dict[str, str] | None = None
+) -> list[tuple[str, str, str | None]]:
+    keywords = package.get("keywords")
+    if not isinstance(keywords, dict):
+        return []
+
+    entries: dict[str, tuple[str, str | None]] = {}
+    keyword_translations = keyword_translations or {}
+
+    for keyword in keywords.get("en") or []:
+        name_en = normalize_text(keyword)
+        if not name_en:
+            continue
+        tag_id = slugify(name_en)
+        if not tag_id or tag_id in entries:
+            continue
+        entries[tag_id] = (name_en, keyword_translations.get(name_en))
+
+    for keyword in keywords.get("fr") or []:
+        name_fr = normalize_text(keyword)
+        if not name_fr:
+            continue
+        tag_id = slugify(name_fr)
+        if not tag_id:
+            continue
+        current = entries.get(tag_id)
+        if current is None:
+            entries[tag_id] = (name_fr, None)
+            continue
+        if current[1] is None:
+            entries[tag_id] = (current[0], name_fr)
+
+    return [
+        (tag_id, name, name_fr) for tag_id, (name, name_fr) in sorted(entries.items())
+    ]
 
 
 def normalize_unix_timestamp(value: str | int | float | None) -> int | None:
@@ -375,11 +760,11 @@ def build_pdf_docs(
     def build_pdf_doc_description(
         source_url: str,
         localized_path: str | None,
-    ) -> str | None:
+    ) -> tuple[str | None, str | None]:
         if not localized_path:
-            return None
+            return None, None
 
-        return f"Source originale: {source_url}"
+        return f"Original source: {source_url}", f"Source originale: {source_url}"
 
     urls = extract_pdf_urls(*texts)
     if not urls:
@@ -396,13 +781,16 @@ def build_pdf_docs(
         )
         row = doc_registry.get(url)
         if row is None:
+            description, description_fr = build_pdf_doc_description(
+                url,
+                export_path,
+            )
             row = {
                 "id": pdf_doc_id(url),
                 "name": pdf_doc_name(url, owner_name),
-                "description": build_pdf_doc_description(
-                    url,
-                    export_path,
-                ),
+                "name:fr": None,
+                "description": description,
+                "description:fr": description_fr,
                 "path": export_path or url,
                 "type": "pdf",
                 "last_update": source_last_update,
@@ -411,10 +799,12 @@ def build_pdf_docs(
         else:
             if export_path:
                 row["path"] = export_path
-                row["description"] = build_pdf_doc_description(
+                description, description_fr = build_pdf_doc_description(
                     url,
                     export_path,
                 )
+                row["description"] = description
+                row["description:fr"] = description_fr
             if not row.get("last_update") and source_last_update:
                 row["last_update"] = source_last_update
         doc_ids.append(row["id"])
@@ -463,13 +853,14 @@ def load_packages() -> dict[str, dict]:
     fp = STAGING_DIR / "packages.jsonl"
     if not fp.exists():
         return pkgs
-    for line in fp.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        p = json.loads(line)
-        pid = p.get("id")
-        if pid:
-            pkgs[pid] = p
+    with fp.open(encoding="utf-8") as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            p = json.loads(line)
+            pid = p.get("id")
+            if pid:
+                pkgs[pid] = p
     return pkgs
 
 
@@ -479,13 +870,14 @@ def load_organizations() -> dict[str, dict]:
     fp = STAGING_DIR / "organizations.jsonl"
     if not fp.exists():
         return out
-    for line in fp.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        org = json.loads(line)
-        name = org.get("name")
-        if name:
-            out[name] = org
+    with fp.open(encoding="utf-8") as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            org = json.loads(line)
+            name = org.get("name")
+            if name:
+                out[name] = org
     return out
 
 
@@ -495,13 +887,14 @@ def load_resources() -> dict[str, dict]:
     fp = STAGING_DIR / "resources.jsonl"
     if not fp.exists():
         return out
-    for line in fp.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        resource = json.loads(line)
-        rid = resource.get("resource_id")
-        if rid:
-            out[rid] = resource
+    with fp.open(encoding="utf-8") as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            resource = json.loads(line)
+            rid = resource.get("resource_id")
+            if rid:
+                out[rid] = resource
     return out
 
 
@@ -511,21 +904,22 @@ def load_manifests() -> dict[str, dict]:
     fp = STAGING_DIR / "download_state.jsonl"
     if not fp.exists():
         return out
-    for line in fp.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        m = json.loads(line)
-        # "ok" = just downloaded ; "skipped" = already present (idempotent rerun).
-        # Both have a valid local_path and are successes.
-        if m.get("download_status") not in {"ok", "skipped"}:
-            continue
-        lp = m.get("local_path")
-        if not lp:
-            continue
-        # Defensive: ensure the file actually exists (manifest may be stale)
-        if not (ROOT / lp).exists() and not Path(lp).exists():
-            continue
-        out[m["resource_id"]] = m
+    with fp.open(encoding="utf-8") as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            m = json.loads(line)
+            # "ok" = just downloaded ; "skipped" = already present (idempotent rerun).
+            # Both have a valid local_path and are successes.
+            if m.get("download_status") not in {"ok", "skipped"}:
+                continue
+            lp = m.get("local_path")
+            if not lp:
+                continue
+            # Defensive: ensure the file actually exists (manifest may be stale)
+            if not (ROOT / lp).exists() and not Path(lp).exists():
+                continue
+            out[m["resource_id"]] = m
     return out
 
 
@@ -535,19 +929,20 @@ def load_doc_downloads() -> dict[str, dict]:
     fp = doc_manifest_path()
     if not fp.exists():
         return out
-    for line in fp.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        entry = json.loads(line)
-        if entry.get("download_status") not in {"ok", "skipped"}:
-            continue
-        source_url = entry.get("source_url")
-        local_path = entry.get("local_path")
-        if not source_url or not local_path:
-            continue
-        if not (ROOT / local_path).exists() and not Path(local_path).exists():
-            continue
-        out[source_url] = entry
+    with fp.open(encoding="utf-8") as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            entry = json.loads(line)
+            if entry.get("download_status") not in {"ok", "skipped"}:
+                continue
+            source_url = entry.get("source_url")
+            local_path = entry.get("local_path")
+            if not source_url or not local_path:
+                continue
+            if not (ROOT / local_path).exists() and not Path(local_path).exists():
+                continue
+            out[source_url] = entry
     return out
 
 
@@ -623,16 +1018,19 @@ def build_institutions(
         "communes-kanton-vaud",
         "biel-bienne",
         "eth-zuerich",
+        "wsl",
         "schweizerische-bundesbahnen-sbb",
     ]
     for vid in virtual_order:
-        parent, name = VIRTUAL_INSTITUTIONS[vid]
+        parent, name_en, name_fr = VIRTUAL_INSTITUTIONS[vid]
         rows.append(
             {
                 "id": vid,
                 "parent_id": parent,
-                "name": name,
+                "name": name_en,
+                "name:fr": name_fr,
                 "description": None,
+                "description:fr": None,
                 "email": None,
                 "phone": None,
                 "start_date": None,
@@ -645,12 +1043,21 @@ def build_institutions(
     # 2. Real CKAN organisations
     for name in sorted(organizations):
         o = organizations[name]
+        display_name = o.get("display_name")
+        title = o.get("title")
+        description = o.get("description")
         rows.append(
             {
                 "id": name,
                 "parent_id": resolve_parent(name, o),
-                "name": pick_fr(o.get("display_name")) or o.get("title") or name,
-                "description": pick_fr(o.get("description")),
+                "name": pick_default_text(display_name)
+                or pick_default_text(title)
+                or name,
+                "name:fr": pick_exact_lang(display_name, "fr")
+                or pick_exact_lang(title, "fr")
+                or None,
+                "description": pick_default_text(description) or None,
+                "description:fr": pick_exact_lang(description, "fr") or None,
                 "email": None,
                 "phone": None,
                 "start_date": None,
@@ -726,6 +1133,7 @@ def build_folders_and_docs(
     organizations: dict[str, dict],
     doc_registry: dict[str, dict],
     doc_downloads: dict[str, dict],
+    keyword_translations: dict[str, str],
 ) -> list[dict]:
     """Return folder rows while registering shared PDF docs globally.
 
@@ -741,13 +1149,15 @@ def build_folders_and_docs(
             resources_by_package[package_id].append(resource)
 
     # 1. Thematic roots
-    for tid, tname in DCAT_GROUPS_FR.items():
+    for tid, tname_fr in DCAT_GROUPS_FR.items():
         folder_rows.append(
             {
                 "id": tid,
                 "parent_id": None,
-                "name": tname,
+                "name": DCAT_GROUPS_EN.get(tid) or tname_fr,
+                "name:fr": tname_fr,
                 "description": None,
+                "description:fr": None,
                 "type": "thematique",
                 "owner_organization_id": None,
                 "manager_organization_id": None,
@@ -764,13 +1174,15 @@ def build_folders_and_docs(
                 "updating_each": None,
             }
         )
-    for tid, tname in EXTRA_ROOTS_FR.items():
+    for tid, tname_fr in EXTRA_ROOTS_FR.items():
         folder_rows.append(
             {
                 "id": tid,
                 "parent_id": None,
-                "name": tname,
+                "name": EXTRA_ROOTS_EN.get(tid) or tname_fr,
+                "name:fr": tname_fr,
                 "description": None,
+                "description:fr": None,
                 "type": "thematique",
                 "link": None,
             }
@@ -782,13 +1194,17 @@ def build_folders_and_docs(
         parent = pick_thematic_root(groups)
         org = package_organization(p, organizations)
         org_name = org.get("name")
-        title = pick_fr(p.get("title")) or p.get("name") or pid
-        description = pick_fr(p.get("description"))
+        title = pick_default_text(p.get("title")) or p.get("name") or pid
+        title_fr = pick_exact_lang(p.get("title"), "fr") or None
+        description = pick_default_text(p.get("description"))
+        description_fr = pick_exact_lang(p.get("description"), "fr") or None
         manager_organization_id = manager_contact_id(p.get("contact_points"))
 
-        # Tags: one per group + free keywords (FR)
+        # Tags: one per group + free keywords (EN default, FR secondary)
         thematic_tags = [f"thematique---{g['name']}" for g in groups if g.get("name")]
-        kw_tags = [slugify(kw) for kw in ((p.get("keywords") or {}).get("fr") or [])]
+        kw_tags = [
+            tag_id for tag_id, _, _ in iter_keyword_entries(p, keyword_translations)
+        ]
         tag_ids = join_ids(thematic_tags + kw_tags)
 
         # Temporals
@@ -812,7 +1228,9 @@ def build_folders_and_docs(
                 "id": pid,
                 "parent_id": parent,
                 "name": title,
-                "description": description,
+                "name:fr": title_fr,
+                "description": description or None,
+                "description:fr": description_fr,
                 "type": "package",
                 "owner_organization_id": org_name,
                 "manager_organization_id": manager_organization_id,
@@ -826,7 +1244,7 @@ def build_folders_and_docs(
                 "license": folder_license_label(p, resources_by_package.get(pid, [])),
                 "start_date": start_date,
                 "end_date": end_date,
-                "updating_each": ACCRUAL_FR.get(
+                "updating_each": ACCRUAL_EN.get(
                     accrual_uri, accrual_uri if accrual_uri else None
                 ),
             }
@@ -863,19 +1281,38 @@ def build_datasets(
         manager_organization_id = manager_contact_id(p.get("contact_points"))
 
         fmt_value = (res.get("format") or "").upper()
-        name_fr = (
-            pick_fr(res.get("title")) or pick_fr(res.get("name")) or fmt_value or rid
+        name_default = (
+            pick_default_text(res.get("title"))
+            or pick_default_text(res.get("name"))
+            or fmt_value
+            or rid
+        )
+        name_fr = pick_exact_lang(res.get("title"), "fr") or pick_exact_lang(
+            res.get("name"), "fr"
         )
         # Avoid names that are just "csv" / "parquet" — prefix with package title
-        pkg_title = pick_fr(p.get("title")) or p.get("name") or pid
-        if name_fr.strip().lower() in {"csv", "parquet", "xls", "xlsx", "excel", ""}:
-            name_fr = f"{pkg_title} — {fmt_value}"
-        resource_description = pick_fr(res.get("description"))
-        description = resource_description or pick_fr(p.get("description"))
+        pkg_title = pick_default_text(p.get("title")) or p.get("name") or pid
+        pkg_title_fr = pick_exact_lang(p.get("title"), "fr")
+        if name_default.strip().lower() in {
+            "csv",
+            "parquet",
+            "xls",
+            "xlsx",
+            "excel",
+            "",
+        }:
+            name_default = f"{pkg_title} — {fmt_value}"
+            if pkg_title_fr:
+                name_fr = f"{pkg_title_fr} — {fmt_value}"
+        resource_description = pick_default_text(res.get("description"))
+        description = resource_description or pick_default_text(p.get("description"))
+        description_fr = pick_exact_lang(
+            res.get("description"), "fr"
+        ) or pick_exact_lang(p.get("description"), "fr")
         dataset_doc_ids, _ = build_pdf_docs(
             doc_registry,
             doc_downloads,
-            name_fr,
+            name_default,
             res.get("modified") or res.get("last_modified") or m.get("modified"),
             res.get("url"),
             resource_description,
@@ -912,8 +1349,10 @@ def build_datasets(
                 "manager_organization_id": manager_organization_id,
                 "tag_ids": None,
                 "doc_ids": dataset_doc_ids,
-                "name": name_fr,
-                "description": description,
+                "name": name_default,
+                "name:fr": name_fr or None,
+                "description": description or None,
+                "description:fr": description_fr or None,
                 "data_path": res.get("url"),
                 "_match_path": local_path,
                 "link": None,
@@ -926,7 +1365,7 @@ def build_datasets(
                 "last_update_date": res.get("modified")
                 or res.get("last_modified")
                 or m.get("modified"),
-                "updating_each": ACCRUAL_FR.get(
+                "updating_each": ACCRUAL_EN.get(
                     accrual_uri, accrual_uri if accrual_uri else None
                 ),
             }
@@ -934,15 +1373,19 @@ def build_datasets(
     return rows
 
 
-def build_tags(packages: dict[str, dict]) -> list[dict]:
+def build_tags(
+    packages: dict[str, dict], keyword_translations: dict[str, str]
+) -> list[dict]:
     rows: list[dict] = []
     # Root thematic tag
     rows.append(
         {
             "id": "thematique",
             "parent_id": None,
-            "name": "Thématique",
+            "name": "Theme",
+            "name:fr": "Thématique",
             "description": None,
+            "description:fr": None,
             "doc_ids": None,
         }
     )
@@ -950,39 +1393,46 @@ def build_tags(packages: dict[str, dict]) -> list[dict]:
         {
             "id": "mot-cle---root",
             "parent_id": None,
-            "name": "Mots-cles",
+            "name": "Keywords",
+            "name:fr": "Mots-cles",
             "description": None,
+            "description:fr": None,
             "doc_ids": None,
         }
     )
     # One child per DCAT group
-    for tid, tname in DCAT_GROUPS_FR.items():
+    for tid, tname_fr in DCAT_GROUPS_FR.items():
         rows.append(
             {
                 "id": f"thematique---{tid}",
                 "parent_id": "thematique",
-                "name": tname,
+                "name": DCAT_GROUPS_EN.get(tid) or tname_fr,
+                "name:fr": tname_fr,
                 "description": None,
+                "description:fr": None,
                 "doc_ids": None,
             }
         )
 
-    # Free keywords (FR), deduped. Keep original text as display name.
-    seen: dict[str, str] = {}
+    # Free keywords, deduped. Keep English by default and French as name:fr.
+    seen: dict[str, tuple[str, str | None]] = {}
     for p in packages.values():
-        for kw in (p.get("keywords") or {}).get("fr") or []:
-            tid = slugify(kw)
-            if not tid:
-                continue
-            seen.setdefault(tid, kw)
+        for tid, name, name_fr in iter_keyword_entries(p, keyword_translations):
+            current = seen.get(tid)
+            if current is None:
+                seen[tid] = (name, name_fr)
+            elif current[1] is None and name_fr:
+                seen[tid] = (current[0], name_fr)
 
-    for tid, name in sorted(seen.items()):
+    for tid, (name, name_fr) in sorted(seen.items()):
         rows.append(
             {
                 "id": tid,
                 "parent_id": "mot-cle---root",
                 "name": name,
+                "name:fr": name_fr,
                 "description": None,
+                "description:fr": None,
                 "doc_ids": None,
             }
         )
@@ -1000,7 +1450,9 @@ INSTITUTION_COLS = [
     "tag_ids",
     "doc_ids",
     "name",
+    "name:fr",
     "description",
+    "description:fr",
     "email",
     "phone",
     "start_date",
@@ -1014,7 +1466,9 @@ FOLDER_COLS = [
     "tag_ids",
     "doc_ids",
     "name",
+    "name:fr",
     "description",
+    "description:fr",
     "link",
     "license",
     "data_path",
@@ -1034,7 +1488,9 @@ DATASET_COLS = [
     "tag_ids",
     "doc_ids",
     "name",
+    "name:fr",
     "description",
+    "description:fr",
     "data_path",
     "_match_path",
     "link",
@@ -1047,8 +1503,25 @@ DATASET_COLS = [
     "last_update_date",
     "updating_each",
 ]
-TAG_COLS = ["id", "parent_id", "doc_ids", "name", "description"]
-DOC_COLS = ["id", "name", "description", "path", "type", "last_update"]
+TAG_COLS = [
+    "id",
+    "parent_id",
+    "doc_ids",
+    "name",
+    "name:fr",
+    "description",
+    "description:fr",
+]
+DOC_COLS = [
+    "id",
+    "name",
+    "name:fr",
+    "description",
+    "description:fr",
+    "path",
+    "type",
+    "last_update",
+]
 
 
 def cascade_purge(
@@ -1205,6 +1678,10 @@ def main() -> int:
 
     print("\nBuilding entities…")
     doc_registry: dict[str, dict] = {}
+    keyword_analysis = analyze_keyword_translations(
+        packages, load_keyword_translation_overrides()
+    )
+    keyword_translations = keyword_analysis["translations"]
     institutions = build_institutions(packages, organizations)
     folders = build_folders_and_docs(
         packages,
@@ -1212,6 +1689,7 @@ def main() -> int:
         organizations,
         doc_registry,
         doc_downloads,
+        keyword_translations,
     )
     datasets = build_datasets(
         packages,
@@ -1222,7 +1700,7 @@ def main() -> int:
         doc_downloads,
     )
     docs = list(doc_registry.values())
-    tags = build_tags(packages)
+    tags = build_tags(packages, keyword_translations)
 
     # Cascade purge: drop folders without surviving descendants, then orphan
     # docs and tags. Idempotent — runs every build, no state to maintain.

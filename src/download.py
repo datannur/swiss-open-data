@@ -17,6 +17,7 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
 import csv
 import hashlib
 import json
@@ -28,7 +29,7 @@ from typing import Any
 
 import requests
 
-from config import FormatConfig, data_dir, iter_formats, parse_noop_args, staging_dir
+from config import FormatConfig, data_dir, iter_formats, staging_dir
 from download_common import (
     CHUNK,
     MAGIC_SNIFF_BYTES,
@@ -59,6 +60,19 @@ DOWNLOAD_STATE_KEYS = (
 )
 
 FORMAT_BY_KEY = {fmt.key: fmt for fmt in iter_formats()}
+
+
+def parse_args() -> argparse.Namespace:
+    ap = argparse.ArgumentParser(description="Download all staged resources.")
+    ap.add_argument(
+        "--prune",
+        action="store_true",
+        help=(
+            "Delete local downloads and manifest entries for resource ids that are "
+            "no longer present in staging/resources.jsonl."
+        ),
+    )
+    return ap.parse_args()
 
 
 def download_state_entry(
@@ -380,6 +394,26 @@ def write_manifest(manifest_file: Path, entries: list[dict[str, Any]]) -> None:
     tmp.replace(manifest_file)
 
 
+def prune_stale_resources(
+    current_resource_ids: set[str],
+    all_manifest: dict[str, dict[str, Any]],
+) -> tuple[int, int]:
+    stale_resource_ids = sorted(set(all_manifest) - current_resource_ids)
+    deleted_files = 0
+    for rid in stale_resource_ids:
+        entry = all_manifest.pop(rid, None)
+        if entry is None:
+            continue
+        local_path = entry.get("local_path")
+        if not local_path:
+            continue
+        path = ROOT / local_path
+        if path.exists():
+            path.unlink()
+            deleted_files += 1
+    return len(stale_resource_ids), deleted_files
+
+
 def process_format(
     session: requests.Session,
     fmt: FormatConfig,
@@ -520,7 +554,7 @@ def process_format(
 
 
 def main() -> int:
-    parse_noop_args("Download all staged resources.")
+    args = parse_args()
     o = staging_dir()
     in_file = o / "resources.jsonl"
     manifest_file = o / "download_state.jsonl"
@@ -528,17 +562,35 @@ def main() -> int:
     resources_by_format: dict[str, list[dict[str, Any]]] = {
         fmt.key: [] for fmt in iter_formats()
     }
-    for line in in_file.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        resource = json.loads(line)
-        format_key = resource.get("format_key")
-        if format_key not in resources_by_format:
-            continue
-        resources_by_format[format_key].append(resource)
+    with in_file.open(encoding="utf-8") as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            resource = json.loads(line)
+            format_key = resource.get("format_key")
+            if format_key not in resources_by_format:
+                continue
+            resources_by_format[format_key].append(resource)
+
+    current_resource_ids = {
+        resource["resource_id"]
+        for resources in resources_by_format.values()
+        for resource in resources
+        if resource.get("resource_id")
+    }
 
     session = make_session()
     all_manifest = load_existing_manifest(manifest_file)
+    if args.prune:
+        stale_entries, deleted_files = prune_stale_resources(
+            current_resource_ids,
+            all_manifest,
+        )
+        write_manifest(manifest_file, list(all_manifest.values()))
+        print(
+            f"[prune] removed {stale_entries} stale manifest entries, "
+            f"deleted {deleted_files} local files"
+        )
     excluded_ids = load_excluded_ids()
     excluded_package_ids = load_excluded_package_ids()
     for fmt in iter_formats():

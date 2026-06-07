@@ -5,6 +5,7 @@
   "outDir": "data/static",
   "dbMetaPath": "data/db",
   "port": 8080,
+  "languages": ["en", "fr"],
   "entities": ["organization", "folder", "tag", "dataset"],
   "routes": [
     "",
