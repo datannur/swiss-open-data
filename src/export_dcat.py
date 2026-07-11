@@ -23,7 +23,9 @@ def _load_generated_module() -> Any:
         "datannur_generated_export_dcat", GENERATED_EXPORTER
     )
     if spec is None or spec.loader is None:
-        raise RuntimeError(f"Unable to load generated exporter from {GENERATED_EXPORTER}")
+        raise RuntimeError(
+            f"Unable to load generated exporter from {GENERATED_EXPORTER}"
+        )
 
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

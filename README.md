@@ -6,7 +6,7 @@
 
 # swiss-open-data
 
-Production pipeline for the public datannur demo catalog at suisse.datannur.com, built from French-language tabular datasets published on opendata.swiss.
+Production pipeline for the public datannur demo catalog at suisse.datannur.com, built from tabular datasets published on opendata.swiss.
 
 ## Status
 
@@ -16,7 +16,6 @@ This repository is published for transparency and as a concrete datannur integra
 
 The pipeline targets opendata.swiss CKAN resources that are:
 
-- French-language or language-neutral;
 - tabular files in Parquet, CSV, or Excel format;
 - processed as part of the demo catalog build.
 
@@ -33,7 +32,7 @@ Resources in the same package may represent the same data in different formats, 
 | `organization` | CKAN organizations plus a small reconstructed hierarchy |
 | `folder` | CKAN packages and top-level thematic folders |
 | `dataset` | Successfully downloaded CKAN resources |
-| `tag` | CKAN thematic groups and French keywords |
+| `tag` | CKAN thematic groups and free keywords |
 | `doc` | Deduplicated PDF documentation URLs |
 
 Each downloaded CKAN resource becomes one datannur `dataset`. This matches how `datannurpy` scans files and avoids merging resources that may have different schemas.
@@ -46,7 +45,7 @@ CKAN `organization` is mapped to datannur `owner_organization_id`, because it re
 
 The organization hierarchy is lightly reconstructed from CKAN organization metadata and a few project-specific containers, such as national, cantonal, communal, and other institutions. This improves navigation in the demo catalog, but is not meant to be a complete institutional authority file.
 
-The pipeline emits two tag families: thematic tags from CKAN groups and free keyword tags from `keywords.fr`. Thematic tags are grouped under a common root, and free keywords are grouped under a separate root to avoid mixing controlled themes with free-text keywords.
+The pipeline emits two tag families: thematic tags from CKAN groups and free keyword tags from CKAN keywords in all four catalog languages (en/fr/de/it), deduplicated by slug and kept in their source language. Thematic tags are grouped under a common root, and free keywords are grouped under a separate root to avoid mixing controlled themes with free-text keywords.
 
 PDF URLs found in package and resource metadata are downloaded into the documentation cache and exported as datannur `doc` rows. Documents are deduplicated globally by source URL, so the same PDF can be referenced by multiple folders or datasets.
 

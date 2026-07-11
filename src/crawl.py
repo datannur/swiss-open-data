@@ -1,6 +1,5 @@
 """
-Crawl opendata.swiss for French- and English-language datasets exposing the
-configured resource formats.
+Crawl opendata.swiss for datasets exposing the configured resource formats.
 
 Outputs are appended to the shared staging directory. Packages are deduped by
 package id; resources stay one line per CKAN resource and carry their format in
@@ -29,13 +28,13 @@ USER_AGENT = (
     "swiss-open-data-crawler/0.1 (+https://github.com/datannur/swiss-open-data)"
 )
 PAGE_SIZE = 500
-LANGUAGES = ("fr", "en")
+LANGUAGES = ("en", "fr", "de", "it")
 URL_RE = re.compile(r'https?://[^\s<>"\']+')
 
 
 def project_localized_text(
     value: dict[str, Any] | str | None,
-    keep_languages: tuple[str, ...] = ("en", "fr"),
+    keep_languages: tuple[str, ...] = LANGUAGES,
 ) -> dict[str, str] | str | None:
     if value is None:
         return None
@@ -74,7 +73,7 @@ def project_keywords(value: Any) -> dict[str, list[str]]:
     if not isinstance(value, dict):
         return {}
     out: dict[str, list[str]] = {}
-    for lang in ("en", "fr"):
+    for lang in LANGUAGES:
         items = value.get(lang)
         if not isinstance(items, list):
             continue
@@ -82,15 +81,6 @@ def project_keywords(value: Any) -> dict[str, list[str]]:
         if filtered:
             out[lang] = filtered
     return out
-
-
-def resource_matches_language(res: dict[str, Any]) -> bool:
-    languages = res.get("language")
-    if not languages:
-        return True
-    if isinstance(languages, str):
-        return languages in LANGUAGES
-    return any(lang in LANGUAGES for lang in languages)
 
 
 def extract_urls(value: Any) -> list[str]:
@@ -121,7 +111,7 @@ def extract_urls(value: Any) -> list[str]:
     return out
 
 
-def iter_packages(ckan: RemoteCKAN, fq: str) -> Iterator[dict[str, Any]]:
+def iter_packages(ckan: RemoteCKAN) -> Iterator[dict[str, Any]]:
     start = 0
     total: int | None = None
     resp: dict[str, Any] = {}
@@ -129,7 +119,7 @@ def iter_packages(ckan: RemoteCKAN, fq: str) -> Iterator[dict[str, Any]]:
         for attempt in range(1, 4):
             try:
                 resp = ckan.action.package_search(
-                    fq=fq, rows=PAGE_SIZE, start=start, sort="id asc"
+                    rows=PAGE_SIZE, start=start, sort="id asc"
                 )
                 break
             except (CKANAPIError, Exception) as exc:  # noqa: BLE001
@@ -141,7 +131,7 @@ def iter_packages(ckan: RemoteCKAN, fq: str) -> Iterator[dict[str, Any]]:
 
         if total is None:
             total = resp["count"]
-            print(f"  total datasets matching fq: {total}")
+            print(f"  total datasets: {total}")
 
         results = resp.get("results", [])
         if not results:
@@ -159,8 +149,6 @@ def extract_resources(
 ) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for res in pkg.get("resources", []) or []:
-        if not resource_matches_language(res):
-            continue
         res_format = (res.get("format") or "").strip().upper()
         format_key = format_map.get(res_format)
         if format_key is None:
@@ -296,22 +284,20 @@ def main() -> int:
         fmt.key: {"packages_with_resources": 0, "resources": 0} for fmt in formats
     }
 
-    language_clause = " OR ".join(LANGUAGES)
-    fq = f"language:({language_clause})"
     ckan = RemoteCKAN(CKAN_URL, user_agent=USER_AGENT)
 
     n_packages = 0
     n_packages_matching = 0
     n_resources = 0
 
-    print(f"Crawling {CKAN_URL} with fq='{fq}' ...")
+    print(f"Crawling {CKAN_URL} ...")
     t0 = time.monotonic()
 
     staged_organizations: dict[str, dict[str, Any]] = {}
     staged_packages: dict[str, dict[str, Any]] = {}
     staged_resources: dict[str, dict[str, Any]] = {}
 
-    for pkg in iter_packages(ckan, fq):
+    for pkg in iter_packages(ckan):
         n_packages += 1
         resources = extract_resources(pkg, format_map)
         if not resources:
@@ -364,7 +350,6 @@ def main() -> int:
         }
     summary = {
         "ckan_url": CKAN_URL,
-        "fq": fq,
         "packages_scanned": n_packages,
         "packages_with_resources": n_packages_matching,
         "resources": n_resources,
