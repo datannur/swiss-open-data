@@ -145,10 +145,10 @@ Generates the static OpenAPI files served under `/api/` from the exported catalo
 ### 7. Optionally Export DCAT Artifacts
 
 ```bash
-uv run python src/export_dcat.py
+python3 catalog/datannur.py dcat
 ```
 
-Exports DCAT interoperability artifacts from the exported catalog database. This project uses a repo-owned wrapper rather than editing the generated `catalog/` app scripts directly, so the step remains durable across catalog rebuilds.
+Exports DCAT interoperability artifacts from the exported catalog database. The export is configured by `app_conf/dcat-export.config.json` (copied into the catalog at build time), including the `synthesize_missing_descriptions` option that fills missing folder/dataset descriptions at export time.
 
 ### 8. Optionally Build Static Pages
 
