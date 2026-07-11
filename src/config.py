@@ -35,7 +35,7 @@ FORMATS: dict[str, FormatConfig] = {
         accepted_content_types=("parquet", "octet-stream"),
         accepted_magic=(b"PAR1",),
         rejected_magic=(),
-        max_bytes=None,
+        max_bytes=10 * 1024 * 1024,  # 10 MB
     ),
     "csv": FormatConfig(
         key="csv",
@@ -55,7 +55,7 @@ FORMATS: dict[str, FormatConfig] = {
             b"<HTML",
             b"\xd0\xcf\x11\xe0",  # legacy Office (xls, doc)
         ),
-        max_bytes=300 * 1024 * 1024,  # 300 MB
+        max_bytes=10 * 1024 * 1024,  # 10 MB
     ),
     "excel": FormatConfig(
         key="excel",
@@ -82,7 +82,7 @@ FORMATS: dict[str, FormatConfig] = {
             b"<html",
             b"<HTML",
         ),
-        max_bytes=300 * 1024 * 1024,
+        max_bytes=10 * 1024 * 1024,  # 10 MB
         ext_from_magic=(
             (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1", ".xls"),
             (b"PK\x03\x04", ".xlsx"),
