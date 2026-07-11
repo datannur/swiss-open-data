@@ -443,12 +443,24 @@ def process_format(
     counts: dict[str, int] = {}
     bytes_total = 0
 
+    def drop_local_file(rid: str) -> None:
+        """Remove a previously downloaded file when its id becomes excluded,
+        so the catalog build stops rescanning it."""
+        local_path = (previous.get(rid) or {}).get("local_path")
+        if not local_path:
+            return
+        for candidate in (ROOT / local_path, Path(local_path)):
+            if candidate.exists():
+                candidate.unlink()
+                return
+
     to_do = []
     for res in resources:
         rid = res.get("resource_id")
         if not rid or not res.get("url"):
             continue
         if rid in excluded_ids:
+            drop_local_file(rid)
             manifest[rid] = download_state_entry(
                 res,
                 local_path=None,
@@ -462,6 +474,7 @@ def process_format(
             )
             continue
         if res.get("package_id") in excluded_package_ids:
+            drop_local_file(rid)
             manifest[rid] = download_state_entry(
                 res,
                 local_path=None,

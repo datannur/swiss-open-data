@@ -23,8 +23,13 @@ STAGING_DIR = ROOT / "staging"
 LOGS_DIR = STAGING_DIR / "logs"
 EXCLUDED_CSV = STAGING_DIR / "excluded_datasets.csv"
 
-# Match: "  ✓ <uuid>.<ext> (0 vars) in <time>"
-LINE_RE = re.compile(r"^\s*✓\s+(?P<id>[0-9a-f-]{36})\.[A-Za-z0-9]+\s+\(0 vars\)")
+# Match both datannurpy log formats for unusable datasets:
+#   old: "  ✓ <uuid>.<ext> (0 vars) in <time>"
+#   new: "  ⚠ <uuid>.<ext>: not a valid tabular dataset (...); skipped as untreatable"
+LINE_RE = re.compile(
+    r"^\s*(?:✓\s+(?P<id_zero>[0-9a-f-]{36})\.[A-Za-z0-9]+\s+\(0 vars\)"
+    r"|⚠\s+(?P<id_skip>[0-9a-f-]{36})\.[A-Za-z0-9]+:.*skipped as untreatable)"
+)
 
 
 def load_existing() -> dict[str, str]:
@@ -52,7 +57,7 @@ def scan_log(path: Path) -> list[str]:
     for line in path.read_text(errors="replace").splitlines():
         m = LINE_RE.match(line)
         if m:
-            ids.append(m.group("id"))
+            ids.append(m.group("id_zero") or m.group("id_skip"))
     return ids
 
 
