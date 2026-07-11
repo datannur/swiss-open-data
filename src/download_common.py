@@ -10,8 +10,8 @@ from urllib3.util.retry import Retry
 USER_AGENT = (
     "swiss-open-data-crawler/0.1 (+https://github.com/datannur/swiss-open-data)"
 )
-TIMEOUT = (15, 120)
-WORKERS = 6
+TIMEOUT = (10, 60)
+WORKERS = 16
 CHUNK = 1 << 20  # 1 MiB
 MAGIC_SNIFF_BYTES = 16
 
@@ -31,20 +31,19 @@ def make_session() -> requests.Session:
     retry = Retry(
         total=3,
         backoff_factor=1.0,
-        status_forcelist=(500, 502, 503, 504),
+        status_forcelist=(429, 500, 502, 503, 504),
         allowed_methods=frozenset(("GET",)),
         raise_on_status=False,
     )
-    adapter = HTTPAdapter(
-        max_retries=retry, pool_connections=WORKERS, pool_maxsize=WORKERS
-    )
+    # Keep-alive on: most resources come from a handful of publisher hosts,
+    # so reusing connections avoids a TCP+TLS handshake per file.
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=32, pool_maxsize=WORKERS)
     session.mount("http://", adapter)
     session.mount("https://", adapter)
     session.headers.update(
         {
             "User-Agent": USER_AGENT,
             "Accept-Encoding": "identity",
-            "Connection": "close",
         }
     )
     return session
