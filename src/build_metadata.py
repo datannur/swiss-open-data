@@ -211,6 +211,42 @@ VIRTUAL_INSTITUTIONS: dict[str, tuple[str | None, dict[str, str]]] = {
         },
     ),
     # Non-publishing parents referenced by CKAN organisation.groups[]
+    "kanton-zuerich": (
+        "cantons",
+        {
+            "en": "Canton of Zurich",
+            "fr": "Canton de Zurich",
+            "de": "Kanton Zürich",
+            "it": "Cantone di Zurigo",
+        },
+    ),
+    "kanton_luzern": (
+        "cantons",
+        {
+            "en": "Canton of Lucerne",
+            "fr": "Canton de Lucerne",
+            "de": "Kanton Luzern",
+            "it": "Cantone di Lucerna",
+        },
+    ),
+    "stadt-bern": (
+        "communes-kanton-bern-2",
+        {
+            "en": "City of Bern",
+            "fr": "Ville de Berne",
+            "de": "Stadt Bern",
+            "it": "Città di Berna",
+        },
+    ),
+    "bundesamt-fur-kultur-bak": (
+        "confederation",
+        {
+            "en": "Federal Office of Culture FOC",
+            "fr": "Office fédéral de la culture OFC",
+            "de": "Bundesamt für Kultur BAK",
+            "it": "Ufficio federale della cultura UFC",
+        },
+    ),
     "eth-zuerich": (
         "autres",
         {
@@ -810,11 +846,15 @@ def build_institutions(
     """Collect unique CKAN orgs + add virtual conteneurs. Return institution rows."""
 
     # Resolve parent for each real org
+    known_parents = set(VIRTUAL_INSTITUTIONS) | set(organizations)
+
     def resolve_parent(org_name: str, org: dict) -> str | None:
-        parents = [g["name"] for g in (org.get("groups") or [])]
-        if parents:
-            # first CKAN group is the parent (virtual or real org)
-            return parents[0]
+        # first known CKAN group is the parent (virtual or real org); groups
+        # pointing to orgs absent from the corpus fall through to the
+        # political-level containers instead of producing broken references
+        for parent in (g["name"] for g in (org.get("groups") or [])):
+            if parent in known_parents:
+                return parent
         level = org.get("political_level")
         if level == "confederation":
             return "confederation"
@@ -837,6 +877,10 @@ def build_institutions(
         "communes-kanton-bern-2",
         "communes-kanton-vaud",
         "biel-bienne",
+        "kanton-zuerich",
+        "kanton_luzern",
+        "stadt-bern",
+        "bundesamt-fur-kultur-bak",
         "eth-zuerich",
         "wsl",
         "schweizerische-bundesbahnen-sbb",
