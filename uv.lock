@@ -172,13 +172,14 @@ wheels = [
 
 [[package]]
 name = "datannurpy"
-version = "0.29.5"
+version = "0.30.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
     { name = "fsspec" },
     { name = "ibis-framework", extra = ["duckdb"] },
     { name = "jsonjsdb" },
+    { name = "odfpy" },
     { name = "openpyxl" },
     { name = "polars" },
     { name = "pyshacl" },
@@ -187,9 +188,18 @@ dependencies = [
     { name = "rdflib" },
     { name = "xlrd" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1f/0b/7695201a7ff0056d9c8740b2007e3d3a96735a545f77d75153b7e99bda4f/datannurpy-0.29.5.tar.gz", hash = "sha256:4d67ad3bd04ffc68b3313a93e77707277c3f853c902f47891cd591275f15a25c", size = 1023975, upload-time = "2026-07-10T17:09:40.46Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/04/32/04f7f8c2b44c1307cf4a17cb693fef8d323287a76d30f67196a956a70b7a/datannurpy-0.30.0.tar.gz", hash = "sha256:87bb71003cacaab666420d687aa4f099db801e761dff68d49e7ff2ce686a2f45", size = 1047125, upload-time = "2026-07-12T23:33:54.796Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/10/b7/c227a4410d7bc22044e6442122a29272255a97b3c7f26d0fed40a5f32bb2/datannurpy-0.29.5-py3-none-any.whl", hash = "sha256:9be8bbf2fc8a68dd16a20a55a4f1db8928cf1d14e3d789e82bfdb54ce71c1dd7", size = 1083716, upload-time = "2026-07-10T17:09:38.358Z" },
+    { url = "https://files.pythonhosted.org/packages/db/f7/ab11728aad3accfb4993bd0c68f85559fefdd17c8f3db98cbcbe4ef5de14/datannurpy-0.30.0-py3-none-any.whl", hash = "sha256:196c0b26c9aa01f4d5be19b887cdde100fc8dc991fce3f278d53c419b3a1eb82", size = 1107647, upload-time = "2026-07-12T23:33:52.815Z" },
+]
+
+[[package]]
+name = "defusedxml"
+version = "0.7.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/0f/d5/c66da9b79e5bdb124974bfe172b4daf3c984ebd9c2a06e2b8a4dc7331c72/defusedxml-0.7.1.tar.gz", hash = "sha256:1bb3032db185915b62d7c6209c5a8792be6a32ab2fedacc84e01b52c51aa3e69", size = 75520, upload-time = "2021-03-08T10:59:26.269Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/07/6c/aa3f2f849e01cb6a001cd8554a88d4c77c5c1a31c95bdf1cf9301e6d9ef4/defusedxml-0.7.1-py2.py3-none-any.whl", hash = "sha256:a352e7e428770286cc899e2542b6cdaedb2b4953ff269a210103ec58f6198a61", size = 25604, upload-time = "2021-03-08T10:59:24.45Z" },
 ]
 
 [[package]]
@@ -435,6 +445,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/c7/03/2fc4e14c7bd4ff2964b74ba90ecb8552540b6315f201df70f137faa5c589/numpy-2.4.4-cp314-cp314t-win_amd64.whl", hash = "sha256:a7164afb23be6e37ad90b2f10426149fd75aee07ca55653d2aa41e66c4ef697e", size = 12637755, upload-time = "2026-03-29T13:21:31.107Z" },
     { url = "https://files.pythonhosted.org/packages/58/78/548fb8e07b1a341746bfbecb32f2c268470f45fa028aacdbd10d9bc73aab/numpy-2.4.4-cp314-cp314t-win_arm64.whl", hash = "sha256:ba203255017337d39f89bdd58417f03c4426f12beed0440cfd933cb15f8669c7", size = 10566643, upload-time = "2026-03-29T13:21:34.339Z" },
 ]
+
+[[package]]
+name = "odfpy"
+version = "1.4.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "defusedxml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/97/73/8ade73f6749177003f7ce3304f524774adda96e6aaab30ea79fd8fda7934/odfpy-1.4.1.tar.gz", hash = "sha256:db766a6e59c5103212f3cc92ec8dd50a0f3a02790233ed0b52148b70d3c438ec", size = 717045, upload-time = "2020-01-18T16:55:48.852Z" }
 
 [[package]]
 name = "openpyxl"
@@ -873,7 +892,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "ckanapi", specifier = ">=4.11" },
-    { name = "datannurpy", specifier = "==0.29.5" },
+    { name = "datannurpy", specifier = "==0.30.0" },
     { name = "requests", specifier = ">=2.33.1" },
 ]
 
