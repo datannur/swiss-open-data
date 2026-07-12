@@ -1,7 +1,10 @@
 app_path: ./catalog
 metadata_path: ./metadata
 refresh: false
-freq_threshold: 20
+# stat depth: variable statistics without frequency/enumeration tables, which
+# would add ~50 MB to the app's initial load at this catalog size
+depth: stat
+export_size_report: true
 open_browser: true
 log_file: ./staging/logs/datannurpy.log
 
