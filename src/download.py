@@ -24,6 +24,7 @@ import json
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,8 @@ from download_common import (
 
 ROOT = Path(__file__).resolve().parent.parent
 STAGING_DIR = ROOT / "staging"
+# Permanent download failures are retried at most once per this window.
+RETRY_PERMANENT_AFTER = 7 * 24 * 3600  # seconds
 EXCLUDED_CSV = STAGING_DIR / "excluded_datasets.csv"
 EXCLUDED_PACKAGES_CSV = STAGING_DIR / "excluded_packages.csv"
 
@@ -454,10 +457,36 @@ def process_format(
                 candidate.unlink()
                 return
 
+    def failed_permanently_recently(rid: str) -> bool:
+        """Permanent failures (rejected content, size cap, gone URLs) are only
+        retried after RETRY_PERMANENT_AFTER, not on every run."""
+        prev = previous.get(rid)
+        if not prev:
+            return False
+        status = prev.get("download_status")
+        permanent = status in ("content_rejected", "too_large") or (
+            status == "http_error" and prev.get("http_status") in (404, 410, 451)
+        )
+        if not permanent:
+            return False
+        attempted_at = prev.get("downloaded_at")
+        if not attempted_at:
+            return False
+        try:
+            attempted = datetime.strptime(attempted_at, "%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            return False
+        age = datetime.now(timezone.utc) - attempted.replace(tzinfo=timezone.utc)
+        return age.total_seconds() < RETRY_PERMANENT_AFTER
+
+    n_backed_off = 0
     to_do = []
     for res in resources:
         rid = res.get("resource_id")
         if not rid or not res.get("url"):
+            continue
+        if failed_permanently_recently(rid):
+            n_backed_off += 1
             continue
         if rid in excluded_ids:
             drop_local_file(rid)
@@ -489,6 +518,11 @@ def process_format(
             continue
         to_do.append(res)
 
+    if n_backed_off:
+        print(
+            f"[{fmt.key}] {n_backed_off} permanent failures in backoff "
+            f"(retried after {RETRY_PERMANENT_AFTER // 86400} days)"
+        )
     print(f"[{fmt.key}] scheduling {len(to_do)} downloads (workers={WORKERS})")
     t0 = time.monotonic()
 
@@ -509,14 +543,12 @@ def process_format(
             http_status=r.http_status,
             error=r.error,
             response_content_type=r.content_type,
+            # For failures this is the last-attempt time, used to back off
+            # retries of permanent errors.
             downloaded_at=(
-                utc_now()
-                if r.status == "ok"
-                else (
-                    previous.get(rid, {}).get("downloaded_at")
-                    if r.status == "skipped"
-                    else None
-                )
+                previous.get(rid, {}).get("downloaded_at")
+                if r.status == "skipped"
+                else utc_now()
             ),
         )
 
