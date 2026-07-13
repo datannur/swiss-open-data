@@ -214,7 +214,7 @@ wheels = [
 
 [[package]]
 name = "datannurpy"
-version = "0.31.0"
+version = "0.32.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -230,9 +230,9 @@ dependencies = [
     { name = "rdflib" },
     { name = "xlrd" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/db/92/3783fd009fddc27da99bc443d6b5f9d68a7253a01d149c3f9ff43fb6aae4/datannurpy-0.31.0.tar.gz", hash = "sha256:221bd4f912101d43fd4b1b98464967ab6c3616abde648444af37bcd0a9cfc858", size = 1050699, upload-time = "2026-07-13T09:30:05.312Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/18/bc/70c215406c846ab76cf453fd6e54841e775f56cfe2273efc53fb5cdffc22/datannurpy-0.32.0.tar.gz", hash = "sha256:7293a64ecff9f2d860f42f6c24fd011320be25786feddb1376b3d8082a784911", size = 1057828, upload-time = "2026-07-13T21:43:49.58Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e5/09/dfb638deee3c8bcad149a2d486a004f2b636b2c35dacdea05d8ed75e1853/datannurpy-0.31.0-py3-none-any.whl", hash = "sha256:765e207885f40b8429f6d5981eab0330c45570fe8c04770e14034941d4878f29", size = 1111897, upload-time = "2026-07-13T09:30:03.156Z" },
+    { url = "https://files.pythonhosted.org/packages/06/bc/28a6c33cf18be17a25be5e13b0d54c6188048e8cb84345079e67fb2e2a26/datannurpy-0.32.0-py3-none-any.whl", hash = "sha256:6f9f5de4bdcad17f6c6e38fdaebf758743638efb73a3dc5f4b6976348399deb9", size = 1121064, upload-time = "2026-07-13T21:43:47.747Z" },
 ]
 
 [package.optional-dependencies]
@@ -1560,7 +1560,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "ckanapi", specifier = ">=4.11" },
-    { name = "datannurpy", extras = ["geo"], specifier = "==0.31.0" },
+    { name = "datannurpy", extras = ["geo"], specifier = "==0.32.0" },
     { name = "requests", specifier = ">=2.33.1" },
 ]
 
