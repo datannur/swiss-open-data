@@ -329,6 +329,7 @@ SPATIAL_CANONICAL = {
     "suisse": "Switzerland",
 }
 OPENDATA_SWISS_LICENSE_LABELS = {
+    "terms_open": "Opendata.swiss OPEN",
     "terms_by": "Opendata.swiss BY",
     "terms_ask": "Opendata.swiss ASK",
     "terms_by_ask": "Opendata.swiss BY ASK",
