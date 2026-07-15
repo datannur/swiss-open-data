@@ -1156,11 +1156,24 @@ def build(
             # keeps the raw name; mirror both so the overlay merges onto the
             # scanned variable instead of creating a phantom twin.
             vid = dataset_id + ID_SEP + sanitize_id(column)
+            # Keep the real file header as the variable name so it matches both
+            # the scanned variable id and the column shown in the file preview.
+            # i14y's sh:name is a human, often localized label for a (sometimes
+            # cryptic) technical column, e.g. STRSP -> "Langue de rue"; surface
+            # it as the description rather than overwriting the name. A label
+            # that is only the header recased (col_key-equal, e.g. plz -> PLZ)
+            # adds no meaning, so it is dropped as redundant.
             row: dict[str, Any] = {"id": vid, "dataset_id": dataset_id, "name": column}
-            # only override the display name when i14y gives a real label
-            if v["label"] and set(v["label"].values()) != {v["column"]}:
-                row.update(loc_cols("name", v["label"]))
-            row.update(loc_cols("description", v["description"]))
+            label = v["label"]
+            label_is_cosmetic = bool(label) and all(
+                col_key(x) == col_key(column) for x in label.values()
+            )
+            # Prefer an explicit sh:description; otherwise fall back to a genuine
+            # (non-cosmetic) label so the human meaning of the column is kept.
+            description = v["description"]
+            if not description and label and not label_is_cosmetic:
+                description = label
+            row.update(loc_cols("description", description))
             meta = cidx.get(v["conforms"]) if v["conforms"] else None
             if meta and meta["type"] == "CodeList":
                 # controlled code list -> datannur enumeration (code -> label)
