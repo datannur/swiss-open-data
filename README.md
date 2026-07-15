@@ -21,9 +21,9 @@ i14y is the only Swiss source that publishes, per variable:
 - a human, multilingual **label** and **description**;
 - a link (`dct:conformsTo`) to a controlled **code list** (code → meaning).
 
-The catalog is therefore built on the **native** i14y datasets — curated directly on i14y (their `identifier` has no `@`), as opposed to the datasets i14y harvests from opendata.swiss, which are auto-generated, thin, and redundant with the file scan. Native datasets with a published data structure are the well-documented, showcase-quality subset (~180 datasets across federal offices and the cantons of Basel-Landschaft and Bern).
+The catalog is built on i14y's **native** datasets: those curated directly on i14y (their `identifier` has no `@`) that publish a data structure. This is the well-documented subset that carries the variable-level metadata above — around 180 datasets across federal offices and the cantons of Basel-Landschaft and Bern. Datasets i14y harvests from other portals are excluded, as they lack this layer.
 
-Data files come from each dataset's own i14y distribution, not from opendata.swiss.
+Each dataset's data files are downloaded from its own i14y distribution.
 
 ## i14y to datannur Mapping
 
