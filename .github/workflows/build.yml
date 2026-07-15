@@ -78,9 +78,35 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
           DEPLOY_REMOTE_PATH: ${{ secrets.DEPLOY_REMOTE_PATH }}
+          INFOMANIAK_API_KEY: ${{ secrets.INFOMANIAK_API_KEY }}
+          INFOMANIAK_PRODUCT_ID: ${{ secrets.INFOMANIAK_PRODUCT_ID }}
+          TURNSTILE_SITE_KEY: ${{ secrets.TURNSTILE_SITE_KEY }}
+          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
         run: |
-          # llm-web is optional at build time; the placeholder keeps copy_assets happy.
-          cp app_conf/llm-web.config.example.json app_conf/llm-web.config.json
+          # llm-web.config.json is read server-side by the deployed PHP proxy
+          # (app/api/llm) and denied over HTTP by .htaccess; the key never
+          # reaches the browser. Generate it from secrets, or fall back to the
+          # placeholder so the build stays green without the LLM feature.
+          if [ -n "$INFOMANIAK_API_KEY" ]; then
+            python3 - <<'PY'
+          import json, os
+          cfg = {
+              "infomaniak": {
+                  "apiKey": os.environ["INFOMANIAK_API_KEY"],
+                  "productId": os.environ["INFOMANIAK_PRODUCT_ID"],
+              },
+              "turnstile": {
+                  "siteKey": os.environ["TURNSTILE_SITE_KEY"],
+                  "secretKey": os.environ["TURNSTILE_SECRET_KEY"],
+              },
+          }
+          with open("app_conf/llm-web.config.json", "w", encoding="utf-8") as f:
+              json.dump(cfg, f, indent=2)
+          PY
+          else
+            echo "LLM secrets not set; using placeholder (LLM widget disabled)."
+            cp app_conf/llm-web.config.example.json app_conf/llm-web.config.json
+          fi
           # deploy.config.json is copied into catalog/data/ by datannurpy's
           # copy_assets. privateKeyPath is expanded by deploy.py at deploy time,
           # so it points at the key the Configure SSH step writes.

@@ -163,10 +163,18 @@ Deployment requires these repository secrets (**Settings → Secrets and variabl
 | `DEPLOY_USER` | SSH user |
 | `DEPLOY_PORT` | SSH port (optional, defaults to 22) |
 | `DEPLOY_REMOTE_PATH` | Absolute path of the catalog root on the server |
+| `INFOMANIAK_API_KEY` | Infomaniak AI key for the LLM widget (optional) |
+| `INFOMANIAK_PRODUCT_ID` | Infomaniak AI product id (optional) |
+| `TURNSTILE_SITE_KEY` | Cloudflare Turnstile site key (optional) |
+| `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile secret key (optional) |
 
-The workflow generates `app_conf/deploy.config.json` from these secrets at build
-time; the private key never leaves the runner. Without the secrets the build and
-artifact steps still succeed and only the final rsync fails.
+The workflow generates `app_conf/deploy.config.json` and, when the Infomaniak
+secrets are set, `app_conf/llm-web.config.json` from these secrets at build time;
+they never leave the runner. The LLM credentials are read only server-side by the
+deployed PHP proxy (`app/api/llm`) and denied over HTTP by `.htaccess`, so they
+are never exposed to the browser. Without the deploy secrets the build and
+artifact steps still succeed and only the final rsync fails; without the LLM
+secrets the catalog builds normally with the LLM widget disabled.
 
 ## License
 
