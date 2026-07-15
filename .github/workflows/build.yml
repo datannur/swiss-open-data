@@ -97,8 +97,12 @@ jobs:
             staging/i14y
             data
             catalog/data/db
-          key: i14y-${{ github.run_id }}
-          restore-keys: i14y-
+          # Distinct prefix from the check job's i14y-smoke-* caches: a bare
+          # `i14y-` restore-key also prefix-matches those metadata-only caches,
+          # so a smoke cache newer than the last full cache would restore the
+          # metadata WITHOUT the data/ files and force a full re-download.
+          key: i14y-build-${{ github.run_id }}
+          restore-keys: i14y-build-
 
       # The i14y cache and downloads have no TTL, so a scheduled run that reused
       # them would redeploy a frozen catalog. On the weekly schedule, drop them so
