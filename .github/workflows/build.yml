@@ -47,8 +47,19 @@ jobs:
           uv run ruff format --check .
           uv run pyright
 
+      # Reuse the i14y API cache (shared key with build-deploy). The smoke test
+      # fetches the full dataset listing plus every concept and classification —
+      # limit-invariant work — so without a cache each run pays ~2 min of live
+      # API calls. A stale cache is fine here: this validates the code path, not
+      # data freshness.
+      - uses: actions/cache@v4
+        with:
+          path: staging/i14y
+          key: i14y-smoke-${{ github.run_id }}
+          restore-keys: i14y-smoke-
+
       - name: Smoke-test the i14y pipeline (metadata only)
-        run: uv run python src/i14y.py --limit 12 --no-download
+        run: uv run python -u src/i14y.py --limit 12 --no-download
 
   build-deploy:
     needs: check
