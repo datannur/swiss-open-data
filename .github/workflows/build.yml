@@ -85,17 +85,19 @@ jobs:
       # gentle on the i14y API:
       #   - staging/i14y : cached API responses (reruns are offline)
       #   - data         : downloaded files (download_file skips existing ones)
-      #   - catalog/data/db : datannurpy's incremental scan cache (_scan). With
-      #     refresh: false and stable mtimes (actions/cache preserves them, and
-      #     unchanged files are not re-downloaded), unchanged datasets are not
-      #     re-scanned. The cache self-invalidates when datannurpy's scanner
-      #     version changes, so it is safe across version bumps.
+      #   - catalog/data/db/_scan : datannurpy's incremental scan base only. With
+      #     stable mtimes (actions/cache preserves them, and unchanged files are
+      #     not re-downloaded), unchanged datasets are not re-scanned; the base
+      #     self-invalidates on a scanner-version change. We deliberately do NOT
+      #     cache the full exported db: carrying it would accumulate the evolution
+      #     table across runs (and risk a stale db from a floated datannurpy).
+      #     Each build re-exports from _scan + metadata with a blank evolution.
       - uses: actions/cache@v4
         with:
           path: |
             staging/i14y
             data
-            catalog/data/db
+            catalog/data/db/_scan
           key: i14y-${{ github.run_id }}
           restore-keys: i14y-
 
@@ -113,7 +115,11 @@ jobs:
       # pins a stall to this step rather than the whole job.
       - name: Fetch i14y metadata and download files
         timeout-minutes: 25
-        run: uv run python -u src/i14y.py 2>&1 | tee build.log
+        # pipefail: without it the pipe's exit code is tee's (always 0), which
+        # would hide a fetch failure and only surface downstream.
+        run: |
+          set -o pipefail
+          uv run python -u src/i14y.py 2>&1 | tee build.log
 
       - name: Provide app configuration
         env:
@@ -181,7 +187,11 @@ jobs:
           PY
 
       - name: Build the datannur catalog
-        run: uv run python -m datannurpy catalog.yml 2>&1 | tee -a build.log
+        # pipefail so a datannurpy failure fails this step instead of being
+        # masked by tee and only surfacing later (e.g. a missing catalog/ at dcat).
+        run: |
+          set -o pipefail
+          uv run python -m datannurpy catalog.yml 2>&1 | tee -a build.log
 
       - name: Write job summary
         if: always()
