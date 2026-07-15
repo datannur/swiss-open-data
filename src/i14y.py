@@ -177,15 +177,38 @@ def write_csv(path: Path, columns: list[str], rows: list[dict]) -> None:
 _USER_AGENT = "Mozilla/5.0 (compatible; datannur-i14y/1.0; +https://datannur.com)"
 
 
+# How long to wait for the connection + response headers, independent of the
+# read budget below. urllib exposes a single socket timeout, so we open with
+# this short value (a genuinely unreachable or silent host fails in ~seconds
+# instead of stalling the whole read budget) and then relax the socket to the
+# read timeout once bytes are actually flowing.
+CONNECT_TIMEOUT = 8
+
+
+def _relax_read_timeout(resp: Any, read_timeout: float) -> None:
+    """Switch the live response socket from the short connect timeout to the
+    generous read timeout, so a download that has *started* is not killed while
+    an unresponsive host still trips the short connect budget. Best-effort: if
+    CPython's response internals ever change, we silently keep the connect
+    timeout as the read timeout (fails a bit eager, never hangs)."""
+    sock = getattr(getattr(getattr(resp, "fp", None), "raw", None), "_sock", None)
+    if sock is not None:
+        sock.settimeout(read_timeout)
+
+
 def _fetch(
     url: str, timeout: int = 90, retries: int = 4
 ) -> tuple[bytes, dict[str, str]]:
     req = urllib.request.Request(
         url, headers={"Accept": "*/*", "User-Agent": _USER_AGENT}
     )
+    # Never let the connect budget exceed the read budget (some callers pass a
+    # read timeout below CONNECT_TIMEOUT).
+    connect = min(CONNECT_TIMEOUT, timeout)
     for attempt in range(retries):
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as r:
+            with urllib.request.urlopen(req, timeout=connect) as r:
+                _relax_read_timeout(r, timeout)
                 return r.read(), {k.lower(): v for k, v in r.headers.items()}
         except urllib.error.HTTPError:
             raise  # HTTP status errors are not transient; caller handles them
