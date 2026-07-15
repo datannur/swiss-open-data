@@ -442,6 +442,50 @@ DOC_COLS = [
     "last_update",
 ]
 
+# Multilingual display labels for the generated nomenclature columns (the raw
+# headers are Code / ParentCode / Name_<lang>). A ``Name_de`` column holds the
+# German label, so it is labelled "Label (German)" in every UI language.
+_LANG_NAME = {
+    "de": {"en": "German", "de": "Deutsch", "fr": "allemand", "it": "tedesco"},
+    "fr": {"en": "French", "de": "Französisch", "fr": "français", "it": "francese"},
+    "it": {"en": "Italian", "de": "Italienisch", "fr": "italien", "it": "italiano"},
+    "rm": {"en": "Romansh", "de": "Rätoromanisch", "fr": "romanche", "it": "romancio"},
+    "en": {"en": "English", "de": "Englisch", "fr": "anglais", "it": "inglese"},
+}
+_LABEL_WORD = {
+    "en": "Label",
+    "de": "Bezeichnung",
+    "fr": "Libellé",
+    "it": "Denominazione",
+}
+_DESC_WORD = {
+    "en": "Description",
+    "de": "Beschreibung",
+    "fr": "Description",
+    "it": "Descrizione",
+}
+NOMEN_COLUMN_LABELS: dict[str, dict[str, str]] = {
+    "Code": {"en": "Code", "de": "Code", "fr": "Code", "it": "Codice"},
+    "ParentCode": {
+        "en": "Parent code",
+        "de": "Übergeordneter Code",
+        "fr": "Code parent",
+        "it": "Codice superiore",
+    },
+    **{
+        f"Name_{lang}": {
+            ui: f"{_LABEL_WORD[ui]} ({_LANG_NAME[lang][ui]})" for ui in _LABEL_WORD
+        }
+        for lang in _LANG_NAME
+    },
+    **{
+        f"Description_{lang}": {
+            ui: f"{_DESC_WORD[ui]} ({_LANG_NAME[lang][ui]})" for ui in _DESC_WORD
+        }
+        for lang in _LANG_NAME
+    },
+}
+
 CODELIST_FOLDER = "i14y" + ID_SEP + "codelist"
 NOMEN_FOLDER = "i14y" + ID_SEP + "nomenclatures"
 NATIONAL_ROOT = "ch"
@@ -1000,9 +1044,10 @@ def build(out: Path, limit: int | None, publisher: str | None, download: bool) -
         dest = class_dir / f"{sid(ident)}.csv"
         write_classification_csv(codelist_csv(concept["id"]), dest)
         org_id = ensure_org(concept.get("publisher") or {}, orgs)
+        cls_ds_id = NOMEN_FOLDER + ID_SEP + sid(ident)
         ds_rows.append(
             {
-                "id": NOMEN_FOLDER + ID_SEP + sid(ident),
+                "id": cls_ds_id,
                 "folder_id": NOMEN_FOLDER,
                 "owner_organization_id": org_id,
                 "data_path": f"{API}/concepts/{concept['id']}/codelist-entries/exports/csv",
@@ -1013,6 +1058,18 @@ def build(out: Path, limit: int | None, publisher: str | None, download: bool) -
                 **loc_cols("description", name_map(concept.get("description"))),
             }
         )
+        # clean multilingual labels for the technical columns (Code, Name_de, ...)
+        for column in real_columns(dest):
+            labels = NOMEN_COLUMN_LABELS.get(column)
+            if not labels:
+                continue
+            var_rows.append(
+                {
+                    "id": cls_ds_id + ID_SEP + sanitize_id(column),
+                    "dataset_id": cls_ds_id,
+                    **loc_cols("name", labels),
+                }
+            )
 
     # documentation files -> download into staging/docs (copy_assets moves them
     # to data/doc at build time, matching the existing doc convention)
