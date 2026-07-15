@@ -189,8 +189,11 @@ jobs:
       - name: Build the datannur catalog
         # pipefail so a datannurpy failure fails this step instead of being
         # masked by tee and only surfacing later (e.g. a missing catalog/ at dcat).
+        # mkdir: datannurpy writes catalog.yml's log_file without creating its
+        # parent dir, which does not exist on a fresh runner.
         run: |
           set -o pipefail
+          mkdir -p staging/logs
           uv run python -m datannurpy catalog.yml 2>&1 | tee -a build.log
 
       - name: Write job summary
