@@ -355,7 +355,18 @@ FOLDER_COLS = [
     "description:fr",
     "description:it",
 ]
-TAG_COLS = ["id", "parent_id", "name", "name:de", "name:fr", "name:it"]
+TAG_COLS = [
+    "id",
+    "parent_id",
+    "name",
+    "name:de",
+    "name:fr",
+    "name:it",
+    "description",
+    "description:de",
+    "description:fr",
+    "description:it",
+]
 DATASET_COLS = [
     "id",
     "folder_id",
@@ -494,6 +505,13 @@ NOMEN_FOLDER = "i14y" + ID_SEP + "nomenclatures"
 NATIONAL_ROOT = "ch"
 THEME_ROOT = "theme"
 KEYWORD_ROOT = "keyword"
+TERMDAT_ROOT = "termdat"
+# A free keyword becomes a tag only when it links >= this many datasets; keywords
+# backed by a termdat entry are always kept (and enriched).
+KEYWORD_MIN_USAGE = 2
+TERMDAT_API = "https://www.termdat.bk.admin.ch/api/entry"
+# termdat languageId -> our display languages (8 = Romansh is dropped)
+TERMDAT_LANG = {2: "de", 3: "en", 6: "fr", 7: "it"}
 # i14y has no license, only an accessRights code. Show it as a readable
 # multilingual access label; the DCAT export maps these to licence IRIs
 # (see app_conf/dcat-export.config.json: Open -> terms_open, On request -> terms_ask).
@@ -725,6 +743,38 @@ def ensure_manager(rec: dict, orgs: dict, owner_id: str) -> str:
     return org_id
 
 
+def termdat_id(uri: str | None) -> str | None:
+    """Extract the termdat entry id from a keyword uri (.../entry/109754)."""
+    m = re.search(r"/entry/(\d+)", uri or "")
+    return m.group(1) if m else None
+
+
+def termdat_entry(entry_id: str) -> dict:
+    """Fetch (and cache) a termdat entry; {} on any error."""
+    try:
+        d = cached_json(
+            CACHE / "termdat" / f"{entry_id}.json", f"{TERMDAT_API}/{entry_id}"
+        )
+        return d if isinstance(d, dict) else {}
+    except Exception:  # noqa: BLE001 - keyword enrichment is best-effort
+        return {}
+
+
+def termdat_labels(entry: dict) -> tuple[dict[str, str], dict[str, str]]:
+    """Multilingual term (name) and definition (description) from a termdat entry."""
+    names: dict[str, str] = {}
+    descs: dict[str, str] = {}
+    for ld in entry.get("languageDetails", []):
+        lang = TERMDAT_LANG.get(ld.get("languageId"))
+        if not lang:
+            continue
+        if ld.get("terminus"):
+            names.setdefault(lang, ld["terminus"])
+        if ld.get("definition"):
+            descs.setdefault(lang, ld["definition"])
+    return names, descs
+
+
 def codelist_csv(uuid: str) -> Path:
     """Download (and cache) a code list's CSV export: Code, ParentCode, Name_*,
     Description_* — the hierarchical, multilingual table."""
@@ -739,6 +789,26 @@ def codelist_csv(uuid: str) -> Path:
 def _csv_row_count(path: Path) -> int:
     with path.open(encoding="utf-8-sig", newline="") as fh:
         return max(sum(1 for _ in fh) - 1, 0)  # minus header
+
+
+def theme_descriptions(cidx: dict[str, dict]) -> dict[str, dict[str, str]]:
+    """Multilingual description per theme code, from the DV_DCAT_DATASET_THEME
+    code list (the controlled vocabulary behind dataset themes)."""
+    meta = cidx.get("DV_DCAT_DATASET_THEME")
+    if not meta:
+        return {}
+    out: dict[str, dict[str, str]] = {}
+    with codelist_csv(meta["uuid"]).open(encoding="utf-8-sig", newline="") as fh:
+        for r in csv.DictReader(fh):
+            code = r.get("Code")
+            descs = {
+                lang: r[f"Description_{lang}"]
+                for lang in ("de", "fr", "it", "en")
+                if r.get(f"Description_{lang}")
+            }
+            if code and descs:
+                out[code] = descs
+    return out
 
 
 def select_classifications() -> list[dict]:
@@ -817,6 +887,7 @@ def build(out: Path, limit: int | None, publisher: str | None, download: bool) -
         list(ex.map(dataset_structure, ids))
 
     cidx = concept_index()
+    theme_desc = theme_descriptions(cidx)
 
     orgs: dict[str, dict] = {
         NATIONAL_ROOT: {
@@ -841,6 +912,13 @@ def build(out: Path, limit: int | None, publisher: str | None, download: bool) -
             "name:de": "Schlüsselwörter",
             "name:fr": "Mots-clés",
             "name:it": "Parole chiave",
+        },
+        TERMDAT_ROOT: {
+            "id": TERMDAT_ROOT,
+            "name": "Termdat",
+            "name:de": "Termdat",
+            "name:fr": "Termdat",
+            "name:it": "Termdat",
         },
     }
     folders: dict[str, dict] = {
@@ -867,6 +945,10 @@ def build(out: Path, limit: int | None, publisher: str | None, download: bool) -
     docs: dict[str, dict] = {}
     needed_codelists: set[str] = set()
     concepts_used: dict[str, dict] = {}
+    # keyword collection (resolved after the loop: filter + termdat enrichment)
+    kw_meta: dict[str, dict] = {}
+    kw_count: dict[str, int] = {}
+    ds_keyword_keys: dict[str, list[str]] = {}
     structure_only = 0
     unmatched = 0
 
@@ -896,23 +978,22 @@ def build(out: Path, limit: int | None, publisher: str | None, download: bool) -
                     "id": tid,
                     "parent_id": THEME_ROOT,
                     **loc_cols("name", name_map(th.get("name"))),
+                    **loc_cols("description", theme_desc.get(str(code), {})),
                 }
 
-        # free keyword tags (i14y controlled keywords, deduped by termdat uri)
+        # collect keywords (deduped by termdat uri or label); resolved into tags
+        # after the loop once usage counts and termdat data are known
+        ds_kw_keys: list[str] = []
         for kw in rec.get("keywords") or []:
             label = name_map(kw.get("label")) if isinstance(kw, dict) else {}
-            if not label:
+            uri = kw.get("uri") if isinstance(kw, dict) else None
+            if not (label or uri):
                 continue
-            key = kw.get("uri") or "|".join(sorted(label.values()))
-            tid = f"keyword{ID_SEP}{sid(key)}"
-            if tid not in dataset_tag_ids:
-                dataset_tag_ids.append(tid)
-            if tid not in tags:
-                tags[tid] = {
-                    "id": tid,
-                    "parent_id": KEYWORD_ROOT,
-                    **loc_cols("name", label),
-                }
+            key = uri or "|".join(sorted(label.values()))
+            kw_count[key] = kw_count.get(key, 0) + 1
+            kw_meta.setdefault(key, {"label": label, "uri": uri})
+            if key not in ds_kw_keys:
+                ds_kw_keys.append(key)
 
         # folder per publisher
         folder_id = "i14y" + ID_SEP + org_id
@@ -971,6 +1052,7 @@ def build(out: Path, limit: int | None, publisher: str | None, download: bool) -
                 **dataset_extra(rec),
             }
         )
+        ds_keyword_keys[dataset_id] = ds_kw_keys
 
         # variable overlays. Resolve the i14y (lowercased) column to the real
         # header so the overlay id equals datannurpy's scanned variable id. Skip
@@ -1102,6 +1184,49 @@ def build(out: Path, limit: int | None, publisher: str | None, download: bool) -
             if download_file(d["_url"], local):
                 got += 1
         print(f"i14y: {got}/{len(doc_rows)} documentation file(s) into staging/docs")
+
+    # resolve keyword tags: keep those linking >= KEYWORD_MIN_USAGE datasets or
+    # backed by a termdat entry. termdat keywords go under their own root and are
+    # enriched with the multilingual term + definition; the rest stay free tags.
+    termdat_ids = {
+        tid
+        for m in kw_meta.values()
+        if m["uri"] and "termdat" in m["uri"] and (tid := termdat_id(m["uri"]))
+    }
+    print(f"i14y: enriching {len(termdat_ids)} termdat keyword(s)...")
+    with ThreadPoolExecutor(MAX_WORKERS) as ex:
+        list(ex.map(termdat_entry, termdat_ids))
+    kw_tagid: dict[str, str] = {}
+    for key, m in kw_meta.items():
+        td = termdat_id(m["uri"]) if m["uri"] and "termdat" in m["uri"] else None
+        if not (kw_count[key] >= KEYWORD_MIN_USAGE or td):
+            continue
+        if td:
+            tid = TERMDAT_ROOT + ID_SEP + td
+            names, descs = termdat_labels(termdat_entry(td))
+            tags[tid] = {
+                "id": tid,
+                "parent_id": TERMDAT_ROOT,
+                **(loc_cols("name", names) or loc_cols("name", m["label"])),
+                **loc_cols("description", descs),
+            }
+        else:
+            tid = KEYWORD_ROOT + ID_SEP + sid(key)
+            tags[tid] = {
+                "id": tid,
+                "parent_id": KEYWORD_ROOT,
+                **loc_cols("name", m["label"]),
+            }
+        kw_tagid[key] = tid
+    for row in ds_rows:
+        kept = [
+            kw_tagid[k] for k in ds_keyword_keys.get(row["id"], []) if k in kw_tagid
+        ]
+        if kept:
+            existing = row.get("tag_ids") or ""
+            row["tag_ids"] = (
+                ", ".join([existing, *kept]) if existing else ", ".join(kept)
+            )
 
     # drop enumeration_ids that point at a skipped (empty) code list
     emitted_enums = {e["id"] for e in enum_rows}
