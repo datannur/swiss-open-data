@@ -35,7 +35,11 @@ jobs:
         with:
           enable-cache: true
 
-      - run: uv sync
+      # Float datannurpy to its latest release each run (template-style): the
+      # bundled app version tracks it, so the deployed catalog stays current.
+      # Everything else stays pinned by uv.lock. A regression that errors fails
+      # this build before the deploy step ever runs.
+      - run: uv sync --upgrade-package datannurpy
 
       - name: Lint and type-check
         run: |
@@ -57,7 +61,11 @@ jobs:
         with:
           enable-cache: true
 
-      - run: uv sync
+      # Float datannurpy to its latest release each run (template-style): the
+      # bundled app version tracks it, so the deployed catalog stays current.
+      # Everything else stays pinned by uv.lock. A regression that errors fails
+      # this build before the deploy step ever runs.
+      - run: uv sync --upgrade-package datannurpy
 
       # Persist three things between runs so the weekly rebuild is fast and
       # gentle on the i14y API:
@@ -159,15 +167,19 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # The app commands run under `uv run python` so sys.executable is the uv
+      # venv, which carries their deps (jsonschema, rdflib, pyshacl, playwright);
+      # bare python3 on the runner would not. A datannurpy regression that errors
+      # fails one of these steps, which aborts the job before the deploy step.
       - name: Export DCAT and OpenAPI artifacts
         run: |
-          python3 catalog/datannur.py dcat
-          python3 catalog/datannur.py openapi
+          uv run python catalog/datannur.py dcat
+          uv run python catalog/datannur.py openapi
 
       - name: Build SEO-friendly static pages
         run: |
           uv run playwright install --with-deps chromium
-          python3 catalog/datannur.py static
+          uv run python catalog/datannur.py static
 
       - name: Configure SSH
         env:
@@ -181,4 +193,4 @@ jobs:
           ssh-keyscan -p "${DEPLOY_PORT:-22}" "$DEPLOY_HOST" >> ~/.ssh/known_hosts
 
       - name: Deploy (rsync over SSH)
-        run: python3 catalog/datannur.py deploy
+        run: uv run python catalog/datannur.py deploy

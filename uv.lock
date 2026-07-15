@@ -1639,7 +1639,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "ckanapi", specifier = ">=4.11" },
-    { name = "datannurpy", extras = ["geo"], specifier = "==0.33.0" },
+    { name = "datannurpy", extras = ["geo"], specifier = ">=0.33.0" },
     { name = "requests", specifier = ">=2.33.1" },
 ]
 
