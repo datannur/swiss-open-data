@@ -137,6 +137,37 @@ uv run ruff format --check .
 uv run pyright
 ```
 
+## Continuous Deployment
+
+`.github/workflows/build.yml` runs the whole pipeline on GitHub Actions,
+adapted from [datannur/datannur-template](https://github.com/datannur/datannur-template):
+
+- **Pull requests** run only the `check` job — `ruff`, `pyright`, and a
+  metadata-only smoke build (`src/i14y.py --limit 12 --no-download`). Nothing is
+  fetched at scale or deployed.
+- **Pushes to `main`, the weekly schedule, and manual runs** (`workflow_dispatch`)
+  fetch i14y, build the catalog, export the DCAT and OpenAPI artifacts, build the
+  static pages, and deploy to suisse.datannur.com by rsync over SSH. The weekly
+  cron keeps the catalog in sync with i14y automatically.
+
+The i14y API responses and downloaded files are cached between runs, so reruns
+stay fast and gentle on the API.
+
+Deployment requires these repository secrets (**Settings → Secrets and variables
+→ Actions**):
+
+| Secret | Value |
+| --- | --- |
+| `DEPLOY_SSH_KEY` | Private SSH key authorized on the target server |
+| `DEPLOY_HOST` | Server hostname |
+| `DEPLOY_USER` | SSH user |
+| `DEPLOY_PORT` | SSH port (optional, defaults to 22) |
+| `DEPLOY_REMOTE_PATH` | Absolute path of the catalog root on the server |
+
+The workflow generates `app_conf/deploy.config.json` from these secrets at build
+time; the private key never leaves the runner. Without the secrets the build and
+artifact steps still succeed and only the final rsync fails.
+
 ## License
 
 The pipeline code in this repository is released under the MIT License. Source datasets, metadata, code lists, and documentation fetched from the i14y interoperability platform remain governed by their original publisher terms.

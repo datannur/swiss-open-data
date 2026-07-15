@@ -1,0 +1,150 @@
+name: Build and deploy catalog
+
+# Adapted from datannur/datannur-template. Two differences drive the shape:
+#   1. Our data is not committed. `src/i14y.py` fetches it from the i14y API at
+#      build time, so a fetch step runs before datannurpy.
+#   2. We publish to our own server (suisse.datannur.com) by rsync over SSH,
+#      not to GitHub Pages, so the deploy job needs SSH secrets.
+#
+# On pull requests only the `check` job runs (lint, type-check, a metadata-only
+# smoke build) so nothing is fetched at scale or deployed. Pushes to main, the
+# weekly schedule and manual runs go through the full fetch -> build -> deploy.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "39 3 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: catalog-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv sync
+
+      - name: Lint and type-check
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run pyright
+
+      - name: Smoke-test the i14y pipeline (metadata only)
+        run: uv run python src/i14y.py --limit 12 --no-download
+
+  build-deploy:
+    needs: check
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv sync
+
+      # Cache the i14y API responses and downloaded files so the weekly rebuild
+      # is fast and gentle on the i14y API. Reruns are otherwise offline.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            staging/i14y
+            data
+          key: i14y-${{ github.run_id }}
+          restore-keys: i14y-
+
+      - name: Fetch i14y metadata and download files
+        run: uv run python src/i14y.py 2>&1 | tee build.log
+
+      - name: Provide app configuration
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_REMOTE_PATH: ${{ secrets.DEPLOY_REMOTE_PATH }}
+        run: |
+          # llm-web is optional at build time; the placeholder keeps copy_assets happy.
+          cp app_conf/llm-web.config.example.json app_conf/llm-web.config.json
+          # deploy.config.json is copied into catalog/data/ by datannurpy's
+          # copy_assets. privateKeyPath is expanded by deploy.py at deploy time,
+          # so it points at the key the Configure SSH step writes.
+          python3 - <<'PY'
+          import json, os
+          cfg = {
+              "name": "suisse.datannur.com",
+              "host": os.environ["DEPLOY_HOST"],
+              "port": int(os.environ.get("DEPLOY_PORT") or 22),
+              "username": os.environ["DEPLOY_USER"],
+              "remotePath": os.environ["DEPLOY_REMOTE_PATH"],
+              "privateKeyPath": "~/.ssh/deploy_key",
+              "ignore": [
+                  "app/scripts/python",
+                  "app/scripts/windows",
+                  "app/data-template",
+                  ".DS_Store",
+                  ".nojekyll",
+                  "data/jsonjsdb-config.html",
+                  "data/deploy.config.json",
+                  "data/localhost-ports.config.json",
+                  "data/static-make.config.json",
+                  "data/update-app.json",
+              ],
+              "syncOption": {"delete": True},
+          }
+          with open("app_conf/deploy.config.json", "w", encoding="utf-8") as f:
+              json.dump(cfg, f, indent=2)
+          PY
+
+      - name: Build the datannur catalog
+        run: uv run python -m datannurpy catalog.yml 2>&1 | tee -a build.log
+
+      - name: Write job summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '### Catalog build'
+            echo '```'
+            cat build.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Export DCAT and OpenAPI artifacts
+        run: |
+          python3 catalog/datannur.py dcat
+          python3 catalog/datannur.py openapi
+
+      - name: Build SEO-friendly static pages
+        run: |
+          uv run playwright install --with-deps chromium
+          python3 catalog/datannur.py static
+
+      - name: Configure SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${DEPLOY_PORT:-22}" "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy (rsync over SSH)
+        run: python3 catalog/datannur.py deploy
