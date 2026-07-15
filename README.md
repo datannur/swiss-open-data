@@ -6,55 +6,46 @@
 
 # swiss-open-data
 
-Production pipeline for the public datannur demo catalog at suisse.datannur.com, built from tabular datasets published on opendata.swiss.
+Production pipeline for the public datannur demo catalog at suisse.datannur.com, built from the [i14y interoperability platform](https://www.i14y.admin.ch/) of the Swiss Confederation.
 
 ## Status
 
 This repository is published for transparency and as a concrete datannur integration example. It is not intended to be a generic template, a stable API, or a reusable product as-is.
 
-## Scope
+## Why i14y
 
-The pipeline targets opendata.swiss CKAN resources that are:
+datannur's value is documentation at the **variable** level — labels, descriptions and links to controlled code lists. A file scan only recovers column names and types, so a plain open-data file portal cannot feed that layer.
 
-- tabular files in Parquet, CSV, or Excel format;
-- processed as part of the demo catalog build.
+i14y is the only Swiss source that publishes, per variable:
 
-PDF documentation referenced by CKAN packages or resources is downloaded separately and exposed as datannur documents.
+- a human, multilingual **label** and **description**;
+- a link (`dct:conformsTo`) to a controlled **code list** (code → meaning).
 
-## CKAN to datannur Mapping
+The catalog is therefore built on the **native** i14y datasets — curated directly on i14y (their `identifier` has no `@`), as opposed to the datasets i14y harvests from opendata.swiss, which are auto-generated, thin, and redundant with the file scan. Native datasets with a published data structure are the well-documented, showcase-quality subset (~180 datasets across federal offices and the cantons of Basel-Landschaft and Bern).
 
-In CKAN, a `package` is a publication record. It contains metadata, a publishing organization, thematic groups, keywords, and one or more `resources`. A resource is an individual file or URL attached to the package.
+Data files come from each dataset's own i14y distribution, not from opendata.swiss.
 
-Resources in the same package may represent the same data in different formats, a time series split across files, or different tables grouped under the same publication record. The pipeline therefore does not assume that resources in the same package share a schema.
+## i14y to datannur Mapping
 
-| datannur entity | Source |
+| datannur entity | Source (i14y) |
 | --- | --- |
-| `organization` | CKAN organizations plus a small reconstructed hierarchy |
-| `folder` | CKAN packages and top-level thematic folders |
-| `dataset` | Successfully downloaded CKAN resources |
-| `tag` | CKAN thematic groups and free keywords |
-| `doc` | Deduplicated PDF documentation URLs |
+| `organization` | Publishers, grouped by `classification` (federal / cantonal / other public-law / association) under a single national root — a 3-level institutional tree |
+| `folder` | A root `i14y` folder, one sub-folder per publisher, and a `codelist` folder for the shared code lists |
+| `dataset` | Native datasets that have a published data structure |
+| `variable` | Scanned from the data file, then enriched with the i14y multilingual label, description and code-list link |
+| `enumeration` + `value` | i14y code lists (code → multilingual label) |
+| `tag` | i14y controlled thematic vocabulary |
+| `doc` | PDF / Markdown documentation referenced by the dataset (`documentation`, `relations`) |
 
-Each downloaded CKAN resource becomes one datannur `dataset`. This matches how `datannurpy` scans files and avoids merging resources that may have different schemas.
-
-Each CKAN package becomes one datannur `folder`. The folder preserves the editorial grouping between resources from the same publication record.
-
-Top-level folders are created from DCAT-AP-CH thematic groups. Packages with one group are placed under that group. Packages with several groups are placed under `multi`; packages without a group are placed under `other`. The same thematic information is also exposed as tags, so users can either browse by folder or filter by tag.
-
-CKAN `organization` is mapped to datannur `owner_organization_id`, because it represents the publisher of the source package. CKAN `contact_points` are mapped to datannur `manager_organization_id` only when a valid email is available. These manager organizations are synthetic, deduplicated globally by email, and attached to both the package folder and its datasets.
-
-The organization hierarchy is lightly reconstructed from CKAN organization metadata and a few project-specific containers, such as national, cantonal, communal, and other institutions. This improves navigation in the demo catalog, but is not meant to be a complete institutional authority file.
-
-The pipeline emits two tag families: thematic tags from CKAN groups and free keyword tags from CKAN keywords in all four catalog languages (en/fr/de/it), deduplicated by slug and kept in their source language. Thematic tags are grouped under a common root, and free keywords are grouped under a separate root to avoid mixing controlled themes with free-text keywords.
-
-PDF URLs found in package and resource metadata are downloaded into the documentation cache and exported as datannur `doc` rows. Documents are deduplicated globally by source URL, so the same PDF can be referenced by multiple folders or datasets.
+The join that attaches the variable overlays: i14y's `sh:path` equals the file's column header (lowercased), and datannur's scanned variable id is `{dataset_id}---{header}`. The pipeline reads the real header from the downloaded file to recover the exact case, so `{dataset_id}---{header}` lands on the scanned variable. Code lists are supplied through metadata rather than derived from the data (`auto_enumerations` is off in `catalog.yml`).
 
 ## Repository Structure
 
-- `src/`: pipeline scripts
-- `staging/`: intermediate crawl, download, and PDF documentation state
-- `data/`: downloaded tabular files
-- `metadata/`: CSV files generated for datannur
+- `src/i14y.py`: the whole pipeline — fetch i14y, download files and docs, emit metadata CSVs
+- `staging/i14y/`: cached i14y API responses (records, structures, code lists) — reruns are offline
+- `staging/docs/`: downloaded documentation files
+- `data/i14y/`: downloaded tabular files
+- `metadata/`: CSV files generated for datannurpy, plus the manually maintained `config.json` / `configFilter.json`
 - `public/`: manually maintained assets and catalog configuration
 - `app_conf/`: app configuration copied into the generated catalog; sensitive local files are ignored
 - `catalog/`: datannurpy output, ignored by Git
@@ -82,83 +73,49 @@ cp app_conf/llm-web.config.example.json app_conf/llm-web.config.json
 
 ## Running the Pipeline
 
-Run commands from the repository root unless noted otherwise.
+Run commands from the repository root.
 
-### 1. Crawl CKAN Packages
-
-```bash
-uv run python src/crawl.py
-```
-
-Writes the selected organizations, packages, and resources to `staging/`.
-
-### 2. Download Tabular Files
+### 1. Build the i14y metadata and download the files
 
 ```bash
-uv run python src/download.py
+uv run python src/i14y.py
 ```
 
-Downloads tabular files to `data/` and updates `staging/download_state.jsonl`. The command is idempotent: existing files are skipped. It can be rerun to retry failed downloads.
+Fetches the native i14y catalog, downloads the data files into `data/i14y/` and the documentation into `staging/docs/`, and writes the metadata CSVs into `metadata/` (`organization.csv`, `tag.csv`, `folder.csv`, `dataset.csv`, `variable.csv`, `enumeration.csv`, `value.csv`, `doc.csv`). API responses are cached under `staging/i14y/`, so reruns are offline and only re-emit metadata. Useful flags: `--limit N` (first N datasets), `--publisher <id>`, `--no-download` (metadata only), `--out <dir>` (isolated test catalog).
 
-To prune local files for resources that are no longer present in the current `staging/resources.jsonl`, run:
-
-```bash
-uv run python src/download.py --prune
-```
-
-This removes stale files from `data/` and drops their entries from `staging/download_state.jsonl` before continuing with the normal download pass.
-
-### 3. Download Documentation PDFs
-
-```bash
-uv run python src/download_docs.py
-```
-
-Downloads documentation PDFs to `staging/docs/` and updates `staging/doc_download_state.jsonl`.
-
-### 4. Build Metadata CSVs
-
-```bash
-uv run python src/build_metadata.py
-```
-
-Generates the metadata CSV files consumed by datannurpy in `metadata/`: `organization.csv`, `folder.csv`, `dataset.csv`, `tag.csv`, and `doc.csv`.
-
-During the same step, the manually maintained catalog configuration files `public/config.json` and `public/configFilter.json` are copied into `metadata/`.
-
-### 5. Build the datannur Catalog
+### 2. Build the datannur Catalog
 
 ```bash
 uv run python -m datannurpy catalog.yml
 ```
 
-Builds the datannur catalog from `metadata/` and `data/`, copies private app configuration from `app_conf/`, then writes the result to `catalog/`.
+Scans `data/i14y/` at `depth: value`, applies the `metadata/` overlays, copies private app configuration from `app_conf/` and documentation from `staging/docs/`, then writes the result to `catalog/`.
 
-### 6. Optionally Generate API Documentation
+### 3. Optionally Generate API Documentation
 
 ```bash
 python3 catalog/datannur.py openapi
 ```
 
-Generates the static OpenAPI files served under `/api/` from the exported catalog database in `catalog/data/db`. This step is optional and does not depend on the static page build.
+Generates the static OpenAPI files served under `/api/` from the exported catalog database in `catalog/data/db`.
 
-### 7. Optionally Export DCAT Artifacts
+### 4. Optionally Export DCAT Artifacts
 
 ```bash
 python3 catalog/datannur.py dcat
 ```
 
-Exports DCAT interoperability artifacts from the exported catalog database. The export is configured by `app_conf/dcat-export.config.json` (copied into the catalog at build time), including the `synthesize_missing_descriptions` option that fills missing folder/dataset descriptions at export time.
+Exports DCAT interoperability artifacts from the exported catalog database, configured by `app_conf/dcat-export.config.json`.
 
-### 8. Optionally Build Static Pages
+### 5. Optionally Build Static Pages
 
 ```bash
 python3 catalog/datannur.py static
 ```
 
-Builds the static version of the catalog. This step is optional and requires Playwright.
+Builds the static version of the catalog. Requires Playwright.
 
-### 9. Deploy the Catalog
+### 6. Deploy the Catalog
 
 ```bash
 python3 catalog/datannur.py deploy
@@ -166,34 +123,13 @@ python3 catalog/datannur.py deploy
 
 Publishes the catalog.
 
-## Optional Exclusion Loop
-
-`mark_excluded.py` is not part of the normal pipeline. After a `datannurpy` run, it can add resources that produced `0 vars` to `staging/excluded_datasets.csv` so they are ignored by future downloads and builds.
-
-```bash
-uv run python src/mark_excluded.py [datannurpy*.log ...]
-```
-
-Without arguments, the script scans `staging/logs/datannurpy*.log`, then also accepts `datannurpy*.log` files at the repository root or in `staging/`.
-
-## Rebuild Only the Final Stages
-
-If `staging/` and `data/` already exist, the final stages can be rerun with:
-
-```bash
-uv run python src/build_metadata.py
-uv run python -m datannurpy catalog.yml
-```
-
 ## Checks
-
-Run all static checks:
 
 ```bash
 make check
 ```
 
-Or run them separately:
+Or separately:
 
 ```bash
 uv run ruff check .
@@ -203,4 +139,4 @@ uv run pyright
 
 ## License
 
-The pipeline code in this repository is released under the MIT License. Source datasets, metadata, and documentation fetched from opendata.swiss remain governed by their original publisher terms.
+The pipeline code in this repository is released under the MIT License. Source datasets, metadata, code lists, and documentation fetched from the i14y interoperability platform remain governed by their original publisher terms.

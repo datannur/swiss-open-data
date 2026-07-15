@@ -1,11 +1,13 @@
 app_path: ./catalog
 metadata_path: ./metadata
 refresh: false
-# stat depth: variable statistics without frequency/enumeration tables, which
-# would add ~50 MB to the app's initial load at this catalog size
-depth: stat
+# value depth: deepest scan (variable statistics). Affordable here because the
+# i14y corpus is small (~180 datasets). auto_enumerations is off: the code lists
+# come from i14y (metadata/enumeration.csv + value.csv), not from the data scan.
+depth: value
+auto_enumerations: false
 export_size_report: true
-open_browser: true
+open_browser: false
 log_file: ./staging/logs/datannurpy.log
 
 copy_assets:
@@ -19,5 +21,14 @@ copy_assets:
     to: data/img
     
 add:
-  - folder: ./data
+  # Data files downloaded from i14y distributions by src/i14y.py. Folders come
+  # from metadata/folder.csv, so directory folders are not created here.
+  - folder: ./data/i14y
     create_folders: false
+  # Reference classifications (NOGA, ISCO, CHOP, ...) as browsable nomenclature
+  # tables. depth: stat = no frequency tables (every code is unique); a high
+  # preview_rows keeps the full table, loaded on demand (no startup cost).
+  - folder: ./data/classifications
+    create_folders: false
+    depth: stat
+    preview_rows: 50000
