@@ -177,12 +177,14 @@ def write_csv(path: Path, columns: list[str], rows: list[dict]) -> None:
 _USER_AGENT = "Mozilla/5.0 (compatible; datannur-i14y/1.0; +https://datannur.com)"
 
 
-# How long to wait for the connection + response headers, independent of the
-# read budget below. urllib exposes a single socket timeout, so we open with
-# this short value (a genuinely unreachable or silent host fails in ~seconds
-# instead of stalling the whole read budget) and then relax the socket to the
-# read timeout once bytes are actually flowing.
-CONNECT_TIMEOUT = 8
+# Short connect budget for data-file downloads only (passed as connect_timeout
+# below). A dead or geo-blocked distribution host should be abandoned in seconds
+# rather than stalling the read budget, and that failure is non-fatal (the
+# caller falls through to the next candidate). The i14y API itself is NOT given
+# this budget: urllib reads the response status line under the connect timeout,
+# so a short value would kill an API endpoint that is merely slow to respond
+# under load — and those fetches are load-bearing, not skippable.
+DOWNLOAD_CONNECT_TIMEOUT = 8
 
 
 def _relax_read_timeout(resp: Any, read_timeout: float) -> None:
@@ -197,18 +199,23 @@ def _relax_read_timeout(resp: Any, read_timeout: float) -> None:
 
 
 def _fetch(
-    url: str, timeout: int = 90, retries: int = 4
+    url: str,
+    timeout: int = 90,
+    retries: int = 4,
+    connect_timeout: int | None = None,
 ) -> tuple[bytes, dict[str, str]]:
     req = urllib.request.Request(
         url, headers={"Accept": "*/*", "User-Agent": _USER_AGENT}
     )
-    # Never let the connect budget exceed the read budget (some callers pass a
-    # read timeout below CONNECT_TIMEOUT).
-    connect = min(CONNECT_TIMEOUT, timeout)
+    # connect_timeout unset -> connect with the full budget (default for the
+    # i14y API). Set (downloads) -> connect fast, then relax the live socket to
+    # the read budget so a download that has started streaming is not cut short.
+    connect = min(connect_timeout, timeout) if connect_timeout else timeout
     for attempt in range(retries):
         try:
             with urllib.request.urlopen(req, timeout=connect) as r:
-                _relax_read_timeout(r, timeout)
+                if connect != timeout:
+                    _relax_read_timeout(r, timeout)
                 return r.read(), {k.lower(): v for k, v in r.headers.items()}
         except urllib.error.HTTPError:
             raise  # HTTP status errors are not transient; caller handles them
@@ -673,7 +680,9 @@ def download_file(url: str, local: Path) -> bool:
         # A failed download is non-fatal (the caller falls through to the next
         # candidate format), so use a short budget: a slow or unreachable
         # distribution host must not stall the whole run for minutes.
-        body, _ = _fetch(url, timeout=30, retries=2)
+        body, _ = _fetch(
+            url, timeout=30, retries=2, connect_timeout=DOWNLOAD_CONNECT_TIMEOUT
+        )
         local.parent.mkdir(parents=True, exist_ok=True)
         local.write_bytes(body)
         return True
