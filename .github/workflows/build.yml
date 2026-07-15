@@ -85,19 +85,18 @@ jobs:
       # gentle on the i14y API:
       #   - staging/i14y : cached API responses (reruns are offline)
       #   - data         : downloaded files (download_file skips existing ones)
-      #   - catalog/data/db/_scan : datannurpy's incremental scan base only. With
-      #     stable mtimes (actions/cache preserves them, and unchanged files are
-      #     not re-downloaded), unchanged datasets are not re-scanned; the base
-      #     self-invalidates on a scanner-version change. We deliberately do NOT
-      #     cache the full exported db: carrying it would accumulate the evolution
-      #     table across runs (and risk a stale db from a floated datannurpy).
-      #     Each build re-exports from _scan + metadata with a blank evolution.
+      #   - catalog/data/db : the exported db, incl. the incremental scan base
+      #     (_scan) and the evolution table. Caching the whole db (not just _scan)
+      #     lets datannurpy compare each build against the previous one, so the
+      #     evolution table accumulates real changes across runs (e.g. what moved
+      #     in i14y between weekly refreshes). The first run after this cache was
+      #     seeded starts from a blank evolution, then it grows from there.
       - uses: actions/cache@v6
         with:
           path: |
             staging/i14y
             data
-            catalog/data/db/_scan
+            catalog/data/db
           key: i14y-${{ github.run_id }}
           restore-keys: i14y-
 
