@@ -145,13 +145,15 @@ adapted from [datannur/datannur-template](https://github.com/datannur/datannur-t
 - **Pull requests** run only the `check` job — `ruff`, `pyright`, and a
   metadata-only smoke build (`src/i14y.py --limit 12 --no-download`). Nothing is
   fetched at scale or deployed.
-- **Pushes to `main`, the weekly schedule, and manual runs** (`workflow_dispatch`)
+- **Pushes to `main`, the daily schedule, and manual runs** (`workflow_dispatch`)
   fetch i14y, build the catalog, export the DCAT and OpenAPI artifacts, build the
-  static pages, and deploy to swiss-demo.datannur.com by rsync over SSH. The weekly
+  static pages, and deploy to swiss-demo.datannur.com by rsync over SSH. The daily
   cron keeps the catalog in sync with i14y automatically.
 
-The i14y API responses and downloaded files are cached between runs, so reruns
-stay fast and gentle on the API.
+The i14y API responses and downloaded files are cached between runs, so push and
+manual reruns stay fast and gentle on the API. The daily scheduled run drops that
+cache first so it picks up new and changed i14y datasets; the incremental scan
+cache is kept and re-scans only the files that actually changed.
 
 Deployment requires these repository secrets (**Settings → Secrets and variables
 → Actions**):

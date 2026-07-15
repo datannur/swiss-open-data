@@ -16,7 +16,7 @@ on:
   pull_request:
   workflow_dispatch:
   schedule:
-    - cron: "39 3 * * 1"
+    - cron: "39 3 * * *"
 
 permissions:
   contents: read
@@ -84,6 +84,15 @@ jobs:
             catalog/data/db
           key: i14y-${{ github.run_id }}
           restore-keys: i14y-
+
+      # The i14y cache and downloads have no TTL, so a scheduled run that reused
+      # them would redeploy a frozen catalog. On the daily schedule, drop them so
+      # new and changed datasets are actually picked up. Push and manual runs keep
+      # the caches for speed; the scan cache (catalog/data/db) is kept either way
+      # and re-scans only files whose mtime changed.
+      - name: Refresh i14y data on schedule
+        if: github.event_name == 'schedule'
+        run: rm -rf staging/i14y data
 
       - name: Fetch i14y metadata and download files
         run: uv run python src/i14y.py 2>&1 | tee build.log
