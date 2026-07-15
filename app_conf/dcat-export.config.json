@@ -1,9 +1,9 @@
 {
-  "catalog_uri": "https://suisse.datannur.com/catalog",
+  "catalog_uri": "https://swiss-demo.datannur.com/catalog",
   "catalog_title": "Swiss Open Data",
   "catalog_description": "Demo data catalog built from the i14y interoperability platform of the Swiss Confederation, compliant with the DCAT-AP-CH standard",
   "catalog_publisher": "datannur",
-  "base_uri": "https://suisse.datannur.com/",
+  "base_uri": "https://swiss-demo.datannur.com/",
   "organization_slug": "datannur",
   "default_language": "en",
   "languages": ["en", "fr", "de", "it"],

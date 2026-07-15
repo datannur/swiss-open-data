@@ -2,11 +2,11 @@
 ![datannur banner](https://raw.githubusercontent.com/datannur/swiss-open-data/main/public/img/main-banner.png#gh-light-mode-only)
 
 [![MIT License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Demo](https://img.shields.io/badge/demo-live-success)](https://suisse.datannur.com/)
+[![Demo](https://img.shields.io/badge/demo-live-success)](https://swiss-demo.datannur.com/)
 
 # swiss-open-data
 
-Production pipeline for the public datannur demo catalog at suisse.datannur.com, built from the [i14y interoperability platform](https://www.i14y.admin.ch/) of the Swiss Confederation.
+Production pipeline for the public datannur demo catalog at swiss-demo.datannur.com, built from the [i14y interoperability platform](https://www.i14y.admin.ch/) of the Swiss Confederation.
 
 ## Status
 
@@ -147,7 +147,7 @@ adapted from [datannur/datannur-template](https://github.com/datannur/datannur-t
   fetched at scale or deployed.
 - **Pushes to `main`, the weekly schedule, and manual runs** (`workflow_dispatch`)
   fetch i14y, build the catalog, export the DCAT and OpenAPI artifacts, build the
-  static pages, and deploy to suisse.datannur.com by rsync over SSH. The weekly
+  static pages, and deploy to swiss-demo.datannur.com by rsync over SSH. The weekly
   cron keeps the catalog in sync with i14y automatically.
 
 The i14y API responses and downloaded files are cached between runs, so reruns

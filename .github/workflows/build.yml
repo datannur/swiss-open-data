@@ -3,7 +3,7 @@ name: Build and deploy catalog
 # Adapted from datannur/datannur-template. Two differences drive the shape:
 #   1. Our data is not committed. `src/i14y.py` fetches it from the i14y API at
 #      build time, so a fetch step runs before datannurpy.
-#   2. We publish to our own server (suisse.datannur.com) by rsync over SSH,
+#   2. We publish to our own server (swiss-demo.datannur.com) by rsync over SSH,
 #      not to GitHub Pages, so the deploy job needs SSH secrets.
 #
 # On pull requests only the `check` job runs (lint, type-check, a metadata-only
@@ -129,7 +129,7 @@ jobs:
           python3 - <<'PY'
           import json, os
           cfg = {
-              "name": "suisse.datannur.com",
+              "name": "swiss-demo.datannur.com",
               "host": os.environ["DEPLOY_HOST"],
               "port": int(os.environ.get("DEPLOY_PORT") or 22),
               "username": os.environ["DEPLOY_USER"],

@@ -1,5 +1,5 @@
 {
-  "domain": "https://suisse.datannur.com",
+  "domain": "https://swiss-demo.datannur.com",
   "indexSeo": true,
   "appPath": ".",
   "outDir": "data/static",
