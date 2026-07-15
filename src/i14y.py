@@ -57,7 +57,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse
 
 # datannurpy's own column-name sanitizer, used to build scanned variable ids
 # ({dataset_id}---{sanitize_id(col)}). Importing it guarantees our overlay ids
@@ -65,6 +65,12 @@ from urllib.parse import unquote
 from datannurpy.utils.ids import sanitize_id
 
 MAX_WORKERS = 16
+
+# Hosts that block GitHub's runner IP ranges (cantonal gov servers geo-fenced to
+# Switzerland/Europe). Their files download fine locally but time out from CI, so
+# with --drop-blocked-hosts a dataset served only from here is skipped rather than
+# deployed as a hollow structure-only entry.
+BLOCKED_HOSTS = frozenset({"ogd.parl.apps.be.ch"})
 
 ROOT = Path(__file__).resolve().parent.parent
 API = "https://api.i14y.admin.ch/api/public/v1"
@@ -654,6 +660,20 @@ def download_file(url: str, local: Path) -> bool:
         return False
 
 
+def only_blocked_distributions(record: dict) -> bool:
+    """True if the record has download distributions and every one is on a
+    blocked host, so the dataset cannot yield a file from CI (see BLOCKED_HOSTS)."""
+    uris: list[str] = []
+    for dist in record.get("distributions") or []:
+        du = dist.get("downloadUrl") or {}
+        uri = du.get("uri") if isinstance(du, dict) else du
+        if uri:
+            uris.append(str(uri))
+    return bool(uris) and all(
+        (urlparse(u).hostname or "") in BLOCKED_HOSTS for u in uris
+    )
+
+
 def candidate_distributions(record: dict) -> list[tuple[str, str]]:
     """Ordered ``(download_url, ext)`` candidates, best scannable format first.
 
@@ -891,7 +911,13 @@ def nomenclature_note(nomen_ds_id: str) -> dict[str, str]:
     }
 
 
-def build(out: Path, limit: int | None, publisher: str | None, download: bool) -> None:
+def build(
+    out: Path,
+    limit: int | None,
+    publisher: str | None,
+    download: bool,
+    drop_blocked: bool,
+) -> None:
     data_dir = out / "data" / "i14y"
     meta_dir = out / "metadata"
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -924,7 +950,10 @@ def build(out: Path, limit: int | None, publisher: str | None, download: bool) -
         print("i14y: downloading data files...")
 
         def _prime_download(summary: dict) -> None:
-            cands = candidate_distributions(dataset_record(summary["id"]))
+            rec = dataset_record(summary["id"])
+            if drop_blocked and only_blocked_distributions(rec):
+                return  # skipped later anyway; don't waste the download timeout
+            cands = candidate_distributions(rec)
             if not cands:
                 return
             url, ext = cands[0]
@@ -998,6 +1027,7 @@ def build(out: Path, limit: int | None, publisher: str | None, download: bool) -
     kw_count: dict[str, int] = {}
     ds_keyword_keys: dict[str, list[str]] = {}
     structure_only = 0
+    geo_blocked = 0
     unmatched = 0
 
     for i, summary in enumerate(datasets, 1):
@@ -1005,6 +1035,11 @@ def build(out: Path, limit: int | None, publisher: str | None, download: bool) -
         rec = dataset_record(did)
         variables = parse_variables(dataset_structure(did))
         if not variables:
+            continue
+        # In CI, drop datasets whose file is only on a geo-blocked host: they
+        # would deploy as hollow structure-only entries (no scannable file).
+        if drop_blocked and only_blocked_distributions(rec):
+            geo_blocked += 1
             continue
 
         # organization (publisher), grouped under its classification below a
@@ -1321,7 +1356,8 @@ def build(out: Path, limit: int | None, publisher: str | None, download: bool) -
             shutil.copy(src_cfg, meta_dir / name)
 
     print(
-        f"i14y: {len(ds_rows)} datasets ({structure_only} structure-only), "
+        f"i14y: {len(ds_rows)} datasets ({structure_only} structure-only, "
+        f"{geo_blocked} geo-blocked skipped), "
         f"{len(var_rows)} variable overlays ({unmatched} unmatched, skipped), "
         f"{len(enum_rows)} code lists, {len(val_rows)} code values, "
         f"{len(concepts_used)} concepts, {len(doc_rows)} docs, "
@@ -1342,8 +1378,19 @@ def main() -> int:
         "--publisher", default=None, help="keep only this publisher identifier"
     )
     ap.add_argument("--no-download", action="store_true", help="emit metadata only")
+    ap.add_argument(
+        "--drop-blocked-hosts",
+        action="store_true",
+        help="skip datasets whose file is only on a CI-blocked host (BLOCKED_HOSTS)",
+    )
     args = ap.parse_args()
-    build(args.out, args.limit, args.publisher, download=not args.no_download)
+    build(
+        args.out,
+        args.limit,
+        args.publisher,
+        download=not args.no_download,
+        drop_blocked=args.drop_blocked_hosts,
+    )
     return 0
 
 

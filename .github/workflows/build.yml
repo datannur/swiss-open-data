@@ -118,7 +118,7 @@ jobs:
         # would hide a fetch failure and only surface downstream.
         run: |
           set -o pipefail
-          uv run python -u src/i14y.py 2>&1 | tee build.log
+          uv run python -u src/i14y.py --drop-blocked-hosts 2>&1 | tee build.log
 
       - name: Provide app configuration
         env:
