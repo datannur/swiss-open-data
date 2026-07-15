@@ -866,6 +866,20 @@ def write_classification_csv(src: Path, dest: Path) -> None:
             w.writerow({c: r.get(c, "") for c in kept})
 
 
+def nomenclature_note(nomen_ds_id: str) -> dict[str, str]:
+    """Localized enumeration description used when a code list is inlined only as
+    a capped extract: point the reader at the full browsable nomenclature dataset
+    (a relative ``dataset/<id>`` link the app resolves)."""
+    n = CLASSIFICATION_MIN_ENTRIES
+    href = f"dataset/{nomen_ds_id}"
+    return {
+        "en": f"Extract of the first {n} codes — [full list]({href}).",
+        "fr": f"Extrait des {n} premiers codes — [liste complète]({href}).",
+        "de": f"Auszug der ersten {n} Codes — [vollständige Liste]({href}).",
+        "it": f"Estratto dei primi {n} codici — [elenco completo]({href}).",
+    }
+
+
 def build(out: Path, limit: int | None, publisher: str | None, download: bool) -> None:
     data_dir = out / "data" / "i14y"
     meta_dir = out / "metadata"
@@ -1129,6 +1143,15 @@ def build(out: Path, limit: int | None, publisher: str | None, download: bool) -
     with ThreadPoolExecutor(MAX_WORKERS) as ex:
         list(ex.map(codelist_entries, uuids))
 
+    # Code lists that also ship as browsable nomenclature datasets (the big ones,
+    # >= the classification threshold) are inlined only as a capped extract: the
+    # variable keeps its enumeration link and a value sample, and the enumeration
+    # description points at the full nomenclature dataset. A handful of big code
+    # lists (CHOP alone is ~18k entries) would otherwise be ~96% of value.csv,
+    # duplicating data already browsable in the nomenclature preview.
+    classifications = select_classifications()
+    classified_sids = {sid(c["identifier"]) for c in classifications}
+
     enum_rows: list[dict] = []
     val_rows: list[dict] = []
     for ident in sorted(needed_codelists):
@@ -1138,12 +1161,23 @@ def build(out: Path, limit: int | None, publisher: str | None, download: bool) -
         entries = codelist_entries(meta["uuid"])
         if not entries:
             continue  # empty code list: skip rather than emit a valueless enum
-        enum_id = "codelist" + ID_SEP + sid(ident)
+        sident = sid(ident)
+        enum_id = "codelist" + ID_SEP + sident
+        is_nomenclature = sident in classified_sids
+        if is_nomenclature:
+            entries = entries[:CLASSIFICATION_MIN_ENTRIES]
         enum_rows.append(
             {
                 "id": enum_id,
                 "folder_id": CODELIST_FOLDER,
                 **(loc_cols("name", meta["title"]) or {"name": ident}),
+                **(
+                    loc_cols(
+                        "description", nomenclature_note(NOMEN_FOLDER + ID_SEP + sident)
+                    )
+                    if is_nomenclature
+                    else {}
+                ),
             }
         )
         for entry in entries:
@@ -1162,7 +1196,6 @@ def build(out: Path, limit: int | None, publisher: str | None, download: bool) -
     # Cleaned CSV goes to data/classifications, scanned by a dedicated catalog.yml
     # entry at depth: stat with a high preview_rows (full table, loaded on demand).
     class_dir = out / "data" / "classifications"
-    classifications = select_classifications()
     print(f"i14y: {len(classifications)} classification(s) as nomenclature datasets")
     for concept in classifications:
         ident = concept["identifier"]
