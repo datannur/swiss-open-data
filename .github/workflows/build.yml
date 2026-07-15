@@ -29,9 +29,9 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v8.3.2
         with:
           enable-cache: true
 
@@ -52,7 +52,7 @@ jobs:
       # limit-invariant work — so without a cache each run pays ~2 min of live
       # API calls. A stale cache is fine here: this validates the code path, not
       # data freshness.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: staging/i14y
           key: i14y-smoke-${{ github.run_id }}
@@ -69,9 +69,9 @@ jobs:
     # stalled i14y host can never burn hours.
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v8.3.2
         with:
           enable-cache: true
 
@@ -85,19 +85,18 @@ jobs:
       # gentle on the i14y API:
       #   - staging/i14y : cached API responses (reruns are offline)
       #   - data         : downloaded files (download_file skips existing ones)
-      #   - catalog/data/db/_scan : datannurpy's incremental scan base only. With
-      #     stable mtimes (actions/cache preserves them, and unchanged files are
-      #     not re-downloaded), unchanged datasets are not re-scanned; the base
-      #     self-invalidates on a scanner-version change. We deliberately do NOT
-      #     cache the full exported db: carrying it would accumulate the evolution
-      #     table across runs (and risk a stale db from a floated datannurpy).
-      #     Each build re-exports from _scan + metadata with a blank evolution.
-      - uses: actions/cache@v4
+      #   - catalog/data/db : the exported db, incl. the incremental scan base
+      #     (_scan) and the evolution table. Caching the whole db (not just _scan)
+      #     lets datannurpy compare each build against the previous one, so the
+      #     evolution table accumulates real changes across runs (e.g. what moved
+      #     in i14y between weekly refreshes). The first run after this cache was
+      #     seeded starts from a blank evolution, then it grows from there.
+      - uses: actions/cache@v6
         with:
           path: |
             staging/i14y
             data
-            catalog/data/db/_scan
+            catalog/data/db
           key: i14y-${{ github.run_id }}
           restore-keys: i14y-
 
@@ -119,7 +118,7 @@ jobs:
         # would hide a fetch failure and only surface downstream.
         run: |
           set -o pipefail
-          uv run python -u src/i14y.py 2>&1 | tee build.log
+          uv run python -u src/i14y.py --drop-blocked-hosts 2>&1 | tee build.log
 
       - name: Provide app configuration
         env:
@@ -189,8 +188,11 @@ jobs:
       - name: Build the datannur catalog
         # pipefail so a datannurpy failure fails this step instead of being
         # masked by tee and only surfacing later (e.g. a missing catalog/ at dcat).
+        # mkdir: datannurpy writes catalog.yml's log_file without creating its
+        # parent dir, which does not exist on a fresh runner.
         run: |
           set -o pipefail
+          mkdir -p staging/logs
           uv run python -m datannurpy catalog.yml 2>&1 | tee -a build.log
 
       - name: Write job summary
