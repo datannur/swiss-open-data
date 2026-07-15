@@ -375,6 +375,9 @@ DATASET_COLS = [
     "_match_path",
     "link",
     "license",
+    "license:de",
+    "license:fr",
+    "license:it",
     "delivery_format",
     "localisation",
     "start_date",
@@ -491,6 +494,18 @@ NOMEN_FOLDER = "i14y" + ID_SEP + "nomenclatures"
 NATIONAL_ROOT = "ch"
 THEME_ROOT = "theme"
 KEYWORD_ROOT = "keyword"
+# i14y has no license, only an accessRights code. Show it as a readable
+# multilingual access label; the DCAT export maps these to licence IRIs
+# (see app_conf/dcat-export.config.json: Open -> terms_open, On request -> terms_ask).
+ACCESS_LABELS = {
+    "PUBLIC": {"en": "Open", "fr": "Libre", "de": "Frei", "it": "Libero"},
+    "RESTRICTED": {
+        "en": "On request",
+        "fr": "Sur demande",
+        "de": "Auf Anfrage",
+        "it": "Su richiesta",
+    },
+}
 # Code lists with at least this many entries are also exposed as browsable
 # nomenclature datasets (NOGA, ISCO, CHOP, ICD-10, ...); smaller ones stay
 # enumerations only.
@@ -944,7 +959,12 @@ def build(out: Path, limit: int | None, publisher: str | None, download: bool) -
                 "doc_ids": ", ".join(collect_docs(rec, docs)),
                 "data_path": data_path,
                 "_match_path": match_path,
-                "license": (rec.get("accessRights") or {}).get("code"),
+                **loc_cols(
+                    "license",
+                    ACCESS_LABELS.get(
+                        str((rec.get("accessRights") or {}).get("code")), {}
+                    ),
+                ),
                 "last_update_date": rec.get("modified") or rec.get("issued"),
                 **loc_cols("name", name_map(rec.get("title"))),
                 **loc_cols("description", name_map(rec.get("description"))),
