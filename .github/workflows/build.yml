@@ -59,13 +59,21 @@ jobs:
 
       - run: uv sync
 
-      # Cache the i14y API responses and downloaded files so the weekly rebuild
-      # is fast and gentle on the i14y API. Reruns are otherwise offline.
+      # Persist three things between runs so the weekly rebuild is fast and
+      # gentle on the i14y API:
+      #   - staging/i14y : cached API responses (reruns are offline)
+      #   - data         : downloaded files (download_file skips existing ones)
+      #   - catalog/data/db : datannurpy's incremental scan cache (_scan). With
+      #     refresh: false and stable mtimes (actions/cache preserves them, and
+      #     unchanged files are not re-downloaded), unchanged datasets are not
+      #     re-scanned. The cache self-invalidates when datannurpy's scanner
+      #     version changes, so it is safe across version bumps.
       - uses: actions/cache@v4
         with:
           path: |
             staging/i14y
             data
+            catalog/data/db
           key: i14y-${{ github.run_id }}
           restore-keys: i14y-
 
