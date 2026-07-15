@@ -627,9 +627,19 @@ def col_key(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", name.lower())
 
 
+# URLs that already failed to download this run. The parallel pre-download and
+# the main loop both call download_file for the same URL; without this, a dead
+# host (e.g. unreachable from CI) would be re-tried serially in the main loop,
+# spending the whole retry budget again per dataset. set.add/`in` are atomic
+# under the GIL, so this is safe across the download threads.
+_FAILED_URLS: set[str] = set()
+
+
 def download_file(url: str, local: Path) -> bool:
     if local.exists() and local.stat().st_size > 0:
         return True
+    if url in _FAILED_URLS:
+        return False
     try:
         # A failed download is non-fatal (the caller falls through to the next
         # candidate format), so use a short budget: a slow or unreachable
@@ -639,6 +649,7 @@ def download_file(url: str, local: Path) -> bool:
         local.write_bytes(body)
         return True
     except Exception as e:  # noqa: BLE001 - keep the run going
+        _FAILED_URLS.add(url)
         print(f"  ! download failed {url}: {e}")
         return False
 
