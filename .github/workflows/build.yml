@@ -16,7 +16,7 @@ on:
   pull_request:
   workflow_dispatch:
   schedule:
-    - cron: "39 3 * * *"
+    - cron: "39 3 * * 1"
 
 permissions:
   contents: read
@@ -86,7 +86,7 @@ jobs:
           restore-keys: i14y-
 
       # The i14y cache and downloads have no TTL, so a scheduled run that reused
-      # them would redeploy a frozen catalog. On the daily schedule, drop them so
+      # them would redeploy a frozen catalog. On the weekly schedule, drop them so
       # new and changed datasets are actually picked up. Push and manual runs keep
       # the caches for speed; the scan cache (catalog/data/db) is kept either way
       # and re-scans only files whose mtime changed.
