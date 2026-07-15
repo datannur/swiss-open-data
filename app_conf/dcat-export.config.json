@@ -1,7 +1,7 @@
 {
   "catalog_uri": "https://suisse.datannur.com/catalog",
   "catalog_title": "Swiss Open Data",
-  "catalog_description": "Demo data catalog built from tabular datasets published on opendata.swiss, compliant with DCAT-AP-CH standard",
+  "catalog_description": "Demo data catalog built from the i14y interoperability platform of the Swiss Confederation, compliant with the DCAT-AP-CH standard",
   "catalog_publisher": "datannur",
   "base_uri": "https://suisse.datannur.com/",
   "organization_slug": "datannur",
@@ -9,5 +9,9 @@
   "languages": ["en", "fr", "de", "it"],
   "synthesize_missing_descriptions": true,
   "dcat_publication_folder_types": ["package"],
-  "default_license": "http://dcat-ap.ch/vocabulary/licenses/terms_open"
+  "default_license": "http://dcat-ap.ch/vocabulary/licenses/terms_open",
+  "license_uris": {
+    "PUBLIC": "http://dcat-ap.ch/vocabulary/licenses/terms_open",
+    "RESTRICTED": "http://dcat-ap.ch/vocabulary/licenses/terms_ask"
+  }
 }
