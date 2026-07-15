@@ -1,6 +1,6 @@
 {
-  "domain": "https://suisse.datannur.com",
-  "indexSeo": false,
+  "domain": "https://swiss-demo.datannur.com",
+  "indexSeo": true,
   "appPath": ".",
   "outDir": "data/static",
   "dbMetaPath": "data/db",
@@ -8,7 +8,7 @@
   "firstPageTimeoutMs": 10000,
   "routeTimeoutMs": 3000,
   "languages": ["en", "fr", "de", "it"],
-  "entities": ["organization", "folder", "tag", "doc", "dataset"],
+  "entities": [],
   "routes": [
     "",
     "organizations",

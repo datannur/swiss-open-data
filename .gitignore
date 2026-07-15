@@ -17,3 +17,4 @@ catalog*/
 *.log
 app_conf/deploy.config.json
 app_conf/llm-web.config.json
+/todo/

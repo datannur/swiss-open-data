@@ -5,12 +5,13 @@ license = "MIT"
 requires-python = ">=3.14"
 dependencies = [
     "ckanapi>=4.11",
-    "datannurpy[geo]==0.32.0",
+    "datannurpy[geo]>=0.33.1",
     "requests>=2.33.1",
 ]
 
 [dependency-groups]
 dev = [
+    "playwright>=1.61.0",
     "pyright>=1.1",
     "ruff>=0.11",
 ]

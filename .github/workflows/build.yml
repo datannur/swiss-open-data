@@ -1,0 +1,205 @@
+name: Build and deploy catalog
+
+# Adapted from datannur/datannur-template. Two differences drive the shape:
+#   1. Our data is not committed. `src/i14y.py` fetches it from the i14y API at
+#      build time, so a fetch step runs before datannurpy.
+#   2. We publish to our own server (swiss-demo.datannur.com) by rsync over SSH,
+#      not to GitHub Pages, so the deploy job needs SSH secrets.
+#
+# On pull requests only the `check` job runs (lint, type-check, a metadata-only
+# smoke build) so nothing is fetched at scale or deployed. Pushes to main, the
+# weekly schedule and manual runs go through the full fetch -> build -> deploy.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "39 3 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: catalog-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # Float datannurpy to its latest release each run (template-style): the
+      # bundled app version tracks it, so the deployed catalog stays current.
+      # Everything else stays pinned by uv.lock. A regression that errors fails
+      # this build before the deploy step ever runs.
+      - run: uv sync --upgrade-package datannurpy
+
+      - name: Lint and type-check
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run pyright
+
+      - name: Smoke-test the i14y pipeline (metadata only)
+        run: uv run python src/i14y.py --limit 12 --no-download
+
+  build-deploy:
+    needs: check
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # Float datannurpy to its latest release each run (template-style): the
+      # bundled app version tracks it, so the deployed catalog stays current.
+      # Everything else stays pinned by uv.lock. A regression that errors fails
+      # this build before the deploy step ever runs.
+      - run: uv sync --upgrade-package datannurpy
+
+      # Persist three things between runs so the weekly rebuild is fast and
+      # gentle on the i14y API:
+      #   - staging/i14y : cached API responses (reruns are offline)
+      #   - data         : downloaded files (download_file skips existing ones)
+      #   - catalog/data/db : datannurpy's incremental scan cache (_scan). With
+      #     refresh: false and stable mtimes (actions/cache preserves them, and
+      #     unchanged files are not re-downloaded), unchanged datasets are not
+      #     re-scanned. The cache self-invalidates when datannurpy's scanner
+      #     version changes, so it is safe across version bumps.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            staging/i14y
+            data
+            catalog/data/db
+          key: i14y-${{ github.run_id }}
+          restore-keys: i14y-
+
+      # The i14y cache and downloads have no TTL, so a scheduled run that reused
+      # them would redeploy a frozen catalog. On the weekly schedule, drop them so
+      # new and changed datasets are actually picked up. Push and manual runs keep
+      # the caches for speed; the scan cache (catalog/data/db) is kept either way
+      # and re-scans only files whose mtime changed.
+      - name: Refresh i14y data on schedule
+        if: github.event_name == 'schedule'
+        run: rm -rf staging/i14y data
+
+      - name: Fetch i14y metadata and download files
+        run: uv run python src/i14y.py 2>&1 | tee build.log
+
+      - name: Provide app configuration
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_REMOTE_PATH: ${{ secrets.DEPLOY_REMOTE_PATH }}
+          INFOMANIAK_API_KEY: ${{ secrets.INFOMANIAK_API_KEY }}
+          INFOMANIAK_PRODUCT_ID: ${{ secrets.INFOMANIAK_PRODUCT_ID }}
+          TURNSTILE_SITE_KEY: ${{ secrets.TURNSTILE_SITE_KEY }}
+          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+        run: |
+          # llm-web.config.json is read server-side by the deployed PHP proxy
+          # (app/api/llm) and denied over HTTP by .htaccess; the key never
+          # reaches the browser. Generate it from secrets, or fall back to the
+          # placeholder so the build stays green without the LLM feature.
+          if [ -n "$INFOMANIAK_API_KEY" ]; then
+            python3 - <<'PY'
+          import json, os
+          cfg = {
+              "infomaniak": {
+                  "apiKey": os.environ["INFOMANIAK_API_KEY"],
+                  "productId": os.environ["INFOMANIAK_PRODUCT_ID"],
+              },
+              "turnstile": {
+                  "siteKey": os.environ["TURNSTILE_SITE_KEY"],
+                  "secretKey": os.environ["TURNSTILE_SECRET_KEY"],
+              },
+          }
+          with open("app_conf/llm-web.config.json", "w", encoding="utf-8") as f:
+              json.dump(cfg, f, indent=2)
+          PY
+          else
+            echo "LLM secrets not set; using placeholder (LLM widget disabled)."
+            cp app_conf/llm-web.config.example.json app_conf/llm-web.config.json
+          fi
+          # deploy.config.json is copied into catalog/data/ by datannurpy's
+          # copy_assets. privateKeyPath is expanded by deploy.py at deploy time,
+          # so it points at the key the Configure SSH step writes.
+          python3 - <<'PY'
+          import json, os
+          cfg = {
+              "name": "swiss-demo.datannur.com",
+              "host": os.environ["DEPLOY_HOST"],
+              "port": int(os.environ.get("DEPLOY_PORT") or 22),
+              "username": os.environ["DEPLOY_USER"],
+              "remotePath": os.environ["DEPLOY_REMOTE_PATH"],
+              "privateKeyPath": "~/.ssh/deploy_key",
+              "ignore": [
+                  "app/scripts/python",
+                  "app/scripts/windows",
+                  "app/data-template",
+                  ".DS_Store",
+                  ".nojekyll",
+                  "data/jsonjsdb-config.html",
+                  "data/deploy.config.json",
+                  "data/localhost-ports.config.json",
+                  "data/static-make.config.json",
+                  "data/update-app.json",
+              ],
+              "syncOption": {"delete": True},
+          }
+          with open("app_conf/deploy.config.json", "w", encoding="utf-8") as f:
+              json.dump(cfg, f, indent=2)
+          PY
+
+      - name: Build the datannur catalog
+        run: uv run python -m datannurpy catalog.yml 2>&1 | tee -a build.log
+
+      - name: Write job summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '### Catalog build'
+            echo '```'
+            cat build.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # The app commands run under `uv run python` so sys.executable is the uv
+      # venv, which carries their deps (jsonschema, rdflib, pyshacl, playwright);
+      # bare python3 on the runner would not. A datannurpy regression that errors
+      # fails one of these steps, which aborts the job before the deploy step.
+      - name: Export DCAT and OpenAPI artifacts
+        run: |
+          uv run python catalog/datannur.py dcat
+          uv run python catalog/datannur.py openapi
+
+      - name: Build SEO-friendly static pages
+        run: |
+          uv run playwright install --with-deps chromium
+          uv run python catalog/datannur.py static
+
+      - name: Configure SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${DEPLOY_PORT:-22}" "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy (rsync over SSH)
+        run: uv run python catalog/datannur.py deploy
