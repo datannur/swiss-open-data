@@ -47,13 +47,27 @@ jobs:
           uv run ruff format --check .
           uv run pyright
 
+      # Reuse the i14y API cache (shared key with build-deploy). The smoke test
+      # fetches the full dataset listing plus every concept and classification —
+      # limit-invariant work — so without a cache each run pays ~2 min of live
+      # API calls. A stale cache is fine here: this validates the code path, not
+      # data freshness.
+      - uses: actions/cache@v4
+        with:
+          path: staging/i14y
+          key: i14y-smoke-${{ github.run_id }}
+          restore-keys: i14y-smoke-
+
       - name: Smoke-test the i14y pipeline (metadata only)
-        run: uv run python src/i14y.py --limit 12 --no-download
+        run: uv run python -u src/i14y.py --limit 12 --no-download
 
   build-deploy:
     needs: check
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    # Safety net: GitHub's default job timeout is 6h. Fail fast instead so a
+    # stalled i14y host can never burn hours.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
@@ -94,8 +108,12 @@ jobs:
         if: github.event_name == 'schedule'
         run: rm -rf staging/i14y data
 
+      # -u keeps stdout unbuffered so progress is visible live through `tee`
+      # (block buffering otherwise makes the step look frozen). The step timeout
+      # pins a stall to this step rather than the whole job.
       - name: Fetch i14y metadata and download files
-        run: uv run python src/i14y.py 2>&1 | tee build.log
+        timeout-minutes: 25
+        run: uv run python -u src/i14y.py 2>&1 | tee build.log
 
       - name: Provide app configuration
         env:

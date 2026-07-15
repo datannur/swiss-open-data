@@ -171,18 +171,20 @@ def write_csv(path: Path, columns: list[str], rows: list[dict]) -> None:
 _USER_AGENT = "Mozilla/5.0 (compatible; datannur-i14y/1.0; +https://datannur.com)"
 
 
-def _fetch(url: str) -> tuple[bytes, dict[str, str]]:
+def _fetch(
+    url: str, timeout: int = 90, retries: int = 4
+) -> tuple[bytes, dict[str, str]]:
     req = urllib.request.Request(
         url, headers={"Accept": "*/*", "User-Agent": _USER_AGENT}
     )
-    for attempt in range(4):
+    for attempt in range(retries):
         try:
-            with urllib.request.urlopen(req, timeout=90) as r:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
                 return r.read(), {k.lower(): v for k, v in r.headers.items()}
         except urllib.error.HTTPError:
             raise  # HTTP status errors are not transient; caller handles them
         except urllib.error.URLError, OSError, TimeoutError:
-            if attempt == 3:
+            if attempt == retries - 1:
                 raise
             time.sleep(2 * (attempt + 1))
     raise RuntimeError("unreachable")
@@ -629,7 +631,10 @@ def download_file(url: str, local: Path) -> bool:
     if local.exists() and local.stat().st_size > 0:
         return True
     try:
-        body, _ = _fetch(url)
+        # A failed download is non-fatal (the caller falls through to the next
+        # candidate format), so use a short budget: a slow or unreachable
+        # distribution host must not stall the whole run for minutes.
+        body, _ = _fetch(url, timeout=30, retries=2)
         local.parent.mkdir(parents=True, exist_ok=True)
         local.write_bytes(body)
         return True
@@ -885,6 +890,24 @@ def build(out: Path, limit: int | None, publisher: str | None, download: bool) -
     with ThreadPoolExecutor(MAX_WORKERS) as ex:
         list(ex.map(dataset_record, ids))
         list(ex.map(dataset_structure, ids))
+
+    # Pre-download each dataset's primary data file concurrently. The main loop
+    # then reads it from disk (a cache hit) and only falls through to another
+    # format sequentially in the rare case the primary came back empty. This was
+    # the last serial network step; downloads dominate a cold run.
+    if download:
+        print("i14y: downloading data files...")
+
+        def _prime_download(summary: dict) -> None:
+            cands = candidate_distributions(dataset_record(summary["id"]))
+            if not cands:
+                return
+            url, ext = cands[0]
+            base = sid(summary.get("identifier") or summary["id"])
+            download_file(url, data_dir / f"{base}{ext}")
+
+        with ThreadPoolExecutor(MAX_WORKERS) as ex:
+            list(ex.map(_prime_download, datasets))
 
     cidx = concept_index()
     theme_desc = theme_descriptions(cidx)
