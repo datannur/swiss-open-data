@@ -360,6 +360,7 @@ DATASET_COLS = [
     "id",
     "folder_id",
     "owner_organization_id",
+    "manager_organization_id",
     "tag_ids",
     "doc_ids",
     "name",
@@ -372,8 +373,16 @@ DATASET_COLS = [
     "description:it",
     "data_path",
     "_match_path",
+    "link",
     "license",
     "delivery_format",
+    "localisation",
+    "start_date",
+    "end_date",
+    "updating_each",
+    "updating_each:de",
+    "updating_each:fr",
+    "updating_each:it",
     "last_update_date",
 ]
 VARIABLE_COLS = [
@@ -437,6 +446,7 @@ CODELIST_FOLDER = "i14y" + ID_SEP + "codelist"
 NOMEN_FOLDER = "i14y" + ID_SEP + "nomenclatures"
 NATIONAL_ROOT = "ch"
 THEME_ROOT = "theme"
+KEYWORD_ROOT = "keyword"
 # Code lists with at least this many entries are also exposed as browsable
 # nomenclature datasets (NOGA, ISCO, CHOP, ICD-10, ...); smaller ones stay
 # enumerations only.
@@ -602,6 +612,60 @@ def ensure_org(pub: dict, orgs: dict) -> str:
     return org_id
 
 
+def _first(value: Any) -> dict:
+    return (
+        value[0]
+        if isinstance(value, list) and value and isinstance(value[0], dict)
+        else {}
+    )
+
+
+def dataset_extra(rec: dict) -> dict:
+    """Scalar dataset fields i14y fills but we would otherwise drop: update
+    frequency, temporal coverage, spatial coverage, landing page."""
+    row: dict[str, Any] = {}
+    freq = rec.get("frequency") or {}
+    if freq.get("name"):
+        row.update(loc_cols("updating_each", name_map(freq.get("name"))))
+    tc = _first(rec.get("temporalCoverage"))
+    if tc.get("start"):
+        row["start_date"] = str(tc["start"])[:10]
+    if tc.get("end"):
+        row["end_date"] = str(tc["end"])[:10]
+    spatial = [str(s) for s in (rec.get("spatial") or []) if s]
+    if spatial:
+        row["localisation"] = "; ".join(spatial)[:250]
+    lp = _first(rec.get("landingPages"))
+    if lp.get("uri"):
+        row["link"] = lp["uri"]
+    return row
+
+
+def ensure_manager(rec: dict, orgs: dict, owner_id: str) -> str:
+    """Register the dataset's contact point as a manager organization nested
+    under its publisher (``owner_id``) -> a finer level of the org tree (e.g. the
+    39 cantonal units under Basel-Landschaft). Returns its id, or '' when there
+    is no contact. Deduped globally by email."""
+    cp = _first(rec.get("contactPoints"))
+    if not cp:
+        return ""
+    email = cp.get("hasEmail")
+    fn = name_map(cp.get("fn"))
+    if not (email or fn):
+        return ""
+    org_id = "contact" + ID_SEP + sid(email or "|".join(sorted(fn.values())))
+    if org_id == owner_id:  # contact is the publisher itself: no extra level
+        return owner_id
+    if org_id not in orgs:
+        orgs[org_id] = {
+            "id": org_id,
+            "parent_id": owner_id,
+            "email": email,
+            **(loc_cols("name", fn) or {"name": email}),
+        }
+    return org_id
+
+
 def codelist_csv(uuid: str) -> Path:
     """Download (and cache) a code list's CSV export: Code, ParentCode, Name_*,
     Description_* — the hierarchical, multilingual table."""
@@ -712,6 +776,13 @@ def build(out: Path, limit: int | None, publisher: str | None, download: bool) -
             "name:fr": "Thèmes",
             "name:it": "Temi",
         },
+        KEYWORD_ROOT: {
+            "id": KEYWORD_ROOT,
+            "name": "Keywords",
+            "name:de": "Schlüsselwörter",
+            "name:fr": "Mots-clés",
+            "name:it": "Parole chiave",
+        },
     }
     folders: dict[str, dict] = {
         "i14y": {"id": "i14y", "name": "i14y", "name:de": "i14y", "name:fr": "i14y"},
@@ -768,6 +839,22 @@ def build(out: Path, limit: int | None, publisher: str | None, download: bool) -
                     **loc_cols("name", name_map(th.get("name"))),
                 }
 
+        # free keyword tags (i14y controlled keywords, deduped by termdat uri)
+        for kw in rec.get("keywords") or []:
+            label = name_map(kw.get("label")) if isinstance(kw, dict) else {}
+            if not label:
+                continue
+            key = kw.get("uri") or "|".join(sorted(label.values()))
+            tid = f"keyword{ID_SEP}{sid(key)}"
+            if tid not in dataset_tag_ids:
+                dataset_tag_ids.append(tid)
+            if tid not in tags:
+                tags[tid] = {
+                    "id": tid,
+                    "parent_id": KEYWORD_ROOT,
+                    **loc_cols("name", label),
+                }
+
         # folder per publisher
         folder_id = "i14y" + ID_SEP + org_id
         if folder_id not in folders:
@@ -808,6 +895,7 @@ def build(out: Path, limit: int | None, publisher: str | None, download: bool) -
                 "id": dataset_id,
                 "folder_id": folder_id,
                 "owner_organization_id": org_id,
+                "manager_organization_id": ensure_manager(rec, orgs, org_id),
                 "tag_ids": ", ".join(dataset_tag_ids),
                 "doc_ids": ", ".join(collect_docs(rec, docs)),
                 "data_path": data_path,
@@ -816,6 +904,7 @@ def build(out: Path, limit: int | None, publisher: str | None, download: bool) -
                 "last_update_date": rec.get("modified") or rec.get("issued"),
                 **loc_cols("name", name_map(rec.get("title"))),
                 **loc_cols("description", name_map(rec.get("description"))),
+                **dataset_extra(rec),
             }
         )
 
