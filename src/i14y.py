@@ -796,7 +796,7 @@ def dataset_extra(rec: dict) -> dict:
         row["end_date"] = str(tc["end"])[:10]
     spatial = [str(s) for s in (rec.get("spatial") or []) if s]
     if spatial:
-        row["localisation"] = "; ".join(spatial)[:250]
+        row["localisation"] = "; ".join(sorted(spatial))[:250]
     lp = _first(rec.get("landingPages"))
     if lp.get("uri"):
         row["link"] = lp["uri"]
@@ -1177,8 +1177,12 @@ def build(
                 "folder_id": folder_id,
                 "owner_organization_id": org_id,
                 "manager_organization_id": ensure_manager(rec, orgs, org_id),
-                "tag_ids": ", ".join(dataset_tag_ids),
-                "doc_ids": ", ".join(collect_docs(rec, docs)),
+                # sorted: the API returns themes/keywords/docs in unstable order
+                # across fetches; a deterministic order keeps identical weekly
+                # builds identical, so the evolution table records only real
+                # changes (same for the keyword tags appended after the loop).
+                "tag_ids": ", ".join(sorted(dataset_tag_ids)),
+                "doc_ids": ", ".join(sorted(collect_docs(rec, docs))),
                 "data_path": data_path,
                 "_match_path": match_path,
                 **loc_cols(
@@ -1404,9 +1408,9 @@ def build(
             }
         kw_tagid[key] = tid
     for row in ds_rows:
-        kept = [
+        kept = sorted(
             kw_tagid[k] for k in ds_keyword_keys.get(row["id"], []) if k in kw_tagid
-        ]
+        )
         if kept:
             existing = row.get("tag_ids") or ""
             row["tag_ids"] = (
