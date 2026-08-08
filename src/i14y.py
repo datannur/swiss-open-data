@@ -337,9 +337,56 @@ def codelist_entries(uuid: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 # structure parsing
 # ---------------------------------------------------------------------------
+# sh:datatype (xsd) -> datannur scan types, and concept types (dct:conformsTo)
+# as a fallback. Used only for variables without a scanned file: the scan stays
+# the ground truth of what the actual file contains.
+XSD_TYPE = {
+    "string": "string",
+    "token": "string",
+    "integer": "integer",
+    "positiveInteger": "integer",
+    "gYear": "integer",
+    "decimal": "float",
+    "double": "float",
+    "number": "float",
+    "date": "date",
+    "dateTime": "datetime",
+    "boolean": "boolean",
+}
+CONCEPT_TYPE = {
+    "Numeric": "float",
+    "String": "string",
+    "Date": "date",
+    "CodeList": "string",
+}
+
+
 def _types(node: dict) -> list[Any]:
     t = node.get("@type")
     return t if isinstance(t, list) else [t]
+
+
+def _shacl_type(node: dict) -> str | None:
+    """Map the shape's sh:datatype IRI to a datannur type, if any."""
+    d = node.get(f"{SH}datatype")
+    for item in d if isinstance(d, list) else [d]:
+        iri = item.get("@id", "") if isinstance(item, dict) else ""
+        if iri:
+            # one export carries a stray trailing comma (``...#gYear,``)
+            return XSD_TYPE.get(str(iri).rsplit("#", 1)[-1].strip(", "))
+    return None
+
+
+def _shacl_number(node: dict, predicate: str) -> float | None:
+    """Numeric value of ``sh:<predicate>`` (order, minInclusive, ...), if any."""
+    v = node.get(f"{SH}{predicate}")
+    for item in v if isinstance(v, list) else [v]:
+        if isinstance(item, dict) and item.get("@value") is not None:
+            try:
+                return float(item["@value"])
+            except ValueError:
+                return None
+    return None
 
 
 def _path_column(node: dict) -> str | None:
@@ -363,7 +410,9 @@ def _conforms_identifier(node: dict) -> str | None:
 
 
 def parse_variables(nodes: list[dict]) -> list[dict]:
-    """Return ``[{column, label{lang}, description{lang}, conforms}]`` per column."""
+    """Return one dict per column: name, label/description maps, code-list link,
+    plus the declared type and value bounds (used when there is no file to scan).
+    Sorted by ``sh:order`` so structure-only variables keep their curated order."""
     out: list[dict] = []
     for node in nodes:
         if not any("PropertyShape" in str(t) for t in _types(node)):
@@ -372,8 +421,10 @@ def parse_variables(nodes: list[dict]) -> list[dict]:
         if not column:
             continue
         label = langmap(node.get(f"{SH}name"))
-        description = langmap(node.get(f"{SH}description")) or langmap(
-            node.get(f"{DCT}description")
+        description = (
+            langmap(node.get(f"{SH}description"))
+            or langmap(node.get(f"{DCT}description"))
+            or langmap(node.get(f"{RDFS}comment"))
         )
         out.append(
             {
@@ -381,8 +432,13 @@ def parse_variables(nodes: list[dict]) -> list[dict]:
                 "label": label,
                 "description": description,
                 "conforms": _conforms_identifier(node),
+                "type": _shacl_type(node),
+                "min": _shacl_number(node, "minInclusive"),
+                "max": _shacl_number(node, "maxInclusive"),
+                "order": _shacl_number(node, "order"),
             }
         )
+    out.sort(key=lambda v: (v["order"] is None, v["order"]))
     return out
 
 
@@ -459,6 +515,9 @@ VARIABLE_COLS = [
     "description:it",
     "enumeration_ids",
     "concept_id",
+    "type",
+    "min",
+    "max",
 ]
 CONCEPT_COLS = [
     "id",
@@ -1277,6 +1336,20 @@ def build(
                         **loc_cols("name", meta["title"]),
                         **loc_cols("description", meta["description"]),
                     }
+            # No file to scan -> surface i14y's declared type and value bounds
+            # (sh:datatype, concept type, sh:minInclusive/maxInclusive) so the
+            # variable is not typeless. Never done for scanned datasets: there
+            # the scan is the ground truth of what the file actually holds.
+            if not has_file:
+                vtype = v["type"] or (
+                    CONCEPT_TYPE.get(str(meta["type"])) if meta else None
+                )
+                if vtype:
+                    row["type"] = vtype
+                if v["min"] is not None:
+                    row["min"] = v["min"]
+                if v["max"] is not None:
+                    row["max"] = v["max"]
             var_rows.append(row)
 
         if i % 25 == 0:
