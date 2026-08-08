@@ -20,6 +20,10 @@ on:
         description: "Refresh i14y data (schedule-parity run)"
         type: boolean
         default: false
+      reset_evolution:
+        description: "Restart the evolution table from a blank baseline"
+        type: boolean
+        default: false
   schedule:
     - cron: "39 3 * * 1"
 
@@ -123,6 +127,15 @@ jobs:
       - name: Refresh i14y metadata on schedule
         if: github.event_name == 'schedule' || inputs.refresh
         run: rm -rf staging/i14y
+
+      # One-shot baseline reset (manual runs only): drop the cached db —
+      # previous table state, _scan and the accumulated evolution — so this
+      # build exports a blank evolution whose baseline is the current data.
+      # Costs one full re-scan; data/ and its download fallback are kept.
+      # Caches are branch-scoped, so run this from main or it won't stick.
+      - name: Reset evolution baseline
+        if: inputs.reset_evolution
+        run: rm -rf catalog/data/db
 
       # -u keeps stdout unbuffered so progress is visible live through `tee`
       # (block buffering otherwise makes the step look frozen). The step timeout
