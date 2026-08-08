@@ -842,23 +842,44 @@ def termdat_id(uri: str | None) -> str | None:
     return m.group(1) if m else None
 
 
-# Entries that already failed this run. cached_json caches only successes, so
-# without this the keyword-resolution loop would serially re-pay the whole
-# retry budget for every entry whose parallel prefetch failed.
+# Entries already handled this run. Failures: cached_json caches only
+# successes, so without this the keyword-resolution loop would serially re-pay
+# the whole retry budget for every entry whose parallel prefetch failed.
+# Refreshes: re-fetch each entry once, not once per caller.
 _TERMDAT_FAILED: set[str] = set()
+_TERMDAT_REFRESHED: set[str] = set()
 
 
-def termdat_entry(entry_id: str) -> dict:
+def termdat_entry(entry_id: str, refresh: bool = False) -> dict:
     """Fetch (and cache) a termdat entry; {} on any error.
 
     Short budget (like data-file downloads): the enrichment is best-effort, so
     an unresponsive termdat must cost seconds, not the default 4x90s retry
-    budget — that stalled a whole CI run for ~6 min when the host was down."""
+    budget — that stalled a whole CI run for ~6 min when the host was down.
+
+    The cache survives the weekly wipe (see the workflow's refresh step), and
+    ``refresh`` re-fetches a cached entry in place, rewriting only on success:
+    a termdat outage keeps last week's definitions instead of dropping them for
+    a week and flapping the evolution table."""
+    cache_path = CACHE / "termdat" / f"{entry_id}.json"
+    if refresh and cache_path.exists() and entry_id not in _TERMDAT_REFRESHED:
+        _TERMDAT_REFRESHED.add(entry_id)
+        try:
+            body, _ = _fetch(
+                f"{TERMDAT_API}/{entry_id}",
+                timeout=30,
+                retries=2,
+                connect_timeout=DOWNLOAD_CONNECT_TIMEOUT,
+            )
+            json.loads(body)  # only overwrite the cache with valid JSON
+            cache_path.write_bytes(body)
+        except Exception:  # noqa: BLE001 - keep last week's entry
+            pass
     if entry_id in _TERMDAT_FAILED:
         return {}
     try:
         d = cached_json(
-            CACHE / "termdat" / f"{entry_id}.json",
+            cache_path,
             f"{TERMDAT_API}/{entry_id}",
             timeout=30,
             retries=2,
@@ -1409,7 +1430,7 @@ def build(
     }
     print(f"i14y: enriching {len(termdat_ids)} termdat keyword(s)...")
     with ThreadPoolExecutor(MAX_WORKERS) as ex:
-        list(ex.map(termdat_entry, termdat_ids))
+        list(ex.map(lambda t: termdat_entry(t, refresh), termdat_ids))
     kw_tagid: dict[str, str] = {}
     for key, m in kw_meta.items():
         td = termdat_id(m["uri"]) if m["uri"] and "termdat" in m["uri"] else None
@@ -1417,7 +1438,7 @@ def build(
             continue
         if td:
             tid = TERMDAT_ROOT + ID_SEP + td
-            names, descs = termdat_labels(termdat_entry(td))
+            names, descs = termdat_labels(termdat_entry(td, refresh))
             tags[tid] = {
                 "id": tid,
                 "parent_id": TERMDAT_ROOT,
