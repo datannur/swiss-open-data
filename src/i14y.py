@@ -227,11 +227,19 @@ def _fetch(
     raise RuntimeError("unreachable")
 
 
-def cached_json(cache_path: Path, url: str) -> Any:
+def cached_json(
+    cache_path: Path,
+    url: str,
+    timeout: int = 90,
+    retries: int = 4,
+    connect_timeout: int | None = None,
+) -> Any:
     """Fetch ``url`` as JSON, caching the raw body at ``cache_path``."""
     if cache_path.exists():
         return json.loads(cache_path.read_text(encoding="utf-8"))
-    body, _ = _fetch(url)
+    body, _ = _fetch(
+        url, timeout=timeout, retries=retries, connect_timeout=connect_timeout
+    )
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     cache_path.write_bytes(body)
     return json.loads(body)
@@ -834,14 +842,31 @@ def termdat_id(uri: str | None) -> str | None:
     return m.group(1) if m else None
 
 
+# Entries that already failed this run. cached_json caches only successes, so
+# without this the keyword-resolution loop would serially re-pay the whole
+# retry budget for every entry whose parallel prefetch failed.
+_TERMDAT_FAILED: set[str] = set()
+
+
 def termdat_entry(entry_id: str) -> dict:
-    """Fetch (and cache) a termdat entry; {} on any error."""
+    """Fetch (and cache) a termdat entry; {} on any error.
+
+    Short budget (like data-file downloads): the enrichment is best-effort, so
+    an unresponsive termdat must cost seconds, not the default 4x90s retry
+    budget — that stalled a whole CI run for ~6 min when the host was down."""
+    if entry_id in _TERMDAT_FAILED:
+        return {}
     try:
         d = cached_json(
-            CACHE / "termdat" / f"{entry_id}.json", f"{TERMDAT_API}/{entry_id}"
+            CACHE / "termdat" / f"{entry_id}.json",
+            f"{TERMDAT_API}/{entry_id}",
+            timeout=30,
+            retries=2,
+            connect_timeout=DOWNLOAD_CONNECT_TIMEOUT,
         )
         return d if isinstance(d, dict) else {}
     except Exception:  # noqa: BLE001 - keyword enrichment is best-effort
+        _TERMDAT_FAILED.add(entry_id)
         return {}
 
 
