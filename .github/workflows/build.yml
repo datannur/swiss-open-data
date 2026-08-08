@@ -124,9 +124,14 @@ jobs:
       # that morning falls back to last week's file instead of deploying the
       # dataset hollow. Push and manual runs keep all caches for speed; a manual
       # run with the refresh input set behaves like a scheduled one.
+      # The termdat/ subdir is spared: those entries are refreshed in place by
+      # --refresh-data (rewritten only on success), so a termdat outage keeps
+      # last week's definitions instead of dropping them for a week.
       - name: Refresh i14y metadata on schedule
         if: github.event_name == 'schedule' || inputs.refresh
-        run: rm -rf staging/i14y
+        run: |
+          find staging/i14y -mindepth 1 -maxdepth 1 -not -name termdat \
+            -exec rm -rf {} + 2>/dev/null || true
 
       # One-shot baseline reset (manual runs only): drop the cached db —
       # previous table state, _scan and the accumulated evolution — so this
