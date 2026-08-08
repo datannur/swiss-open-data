@@ -47,6 +47,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import io
 import json
 import re
 import shutil
@@ -633,7 +634,9 @@ def real_columns(path: Path) -> list[str]:
     if ext in (".csv", ".tsv", ".txt"):
         # datannurpy strips leading BOM(s) from column names; match that.
         # utf-8-sig drops one BOM at decode, lstrip removes extras (double BOM).
-        with path.open(encoding="utf-8-sig", newline="") as fh:
+        # errors="replace": a non-UTF8 file (e.g. latin-1 from a cantonal host)
+        # must not crash the whole build; its mangled headers simply won't match.
+        with path.open(encoding="utf-8-sig", errors="replace", newline="") as fh:
             first = fh.readline().lstrip("\ufeff")
         if not first:
             return []
@@ -669,13 +672,23 @@ def col_key(name: str) -> str:
 # spending the whole retry budget again per dataset. set.add/`in` are atomic
 # under the GIL, so this is safe across the download threads.
 _FAILED_URLS: set[str] = set()
+# URLs already re-downloaded this run in refresh mode, so the main loop does not
+# fetch again what the parallel pre-download just refreshed.
+_REFRESHED_URLS: set[str] = set()
 
 
-def download_file(url: str, local: Path) -> bool:
-    if local.exists() and local.stat().st_size > 0:
+def download_file(url: str, local: Path, refresh: bool = False) -> bool:
+    """Download ``url`` into ``local``; True when a usable file is in place.
+
+    With ``refresh``, an existing file is re-downloaded but rewritten only when
+    the content actually changed — an unchanged file keeps its mtime, so the
+    incremental scan skips it — and a failed or empty re-download keeps the
+    previous file as a fallback instead of losing the dataset for a week."""
+    have = local.exists() and local.stat().st_size > 0
+    if have and (not refresh or url in _REFRESHED_URLS):
         return True
     if url in _FAILED_URLS:
-        return False
+        return have
     try:
         # A failed download is non-fatal (the caller falls through to the next
         # candidate format), so use a short budget: a slow or unreachable
@@ -683,13 +696,17 @@ def download_file(url: str, local: Path) -> bool:
         body, _ = _fetch(
             url, timeout=30, retries=2, connect_timeout=DOWNLOAD_CONNECT_TIMEOUT
         )
-        local.parent.mkdir(parents=True, exist_ok=True)
-        local.write_bytes(body)
-        return True
     except Exception as e:  # noqa: BLE001 - keep the run going
         _FAILED_URLS.add(url)
-        print(f"  ! download failed {url}: {e}")
-        return False
+        kept = " (kept previous file)" if have else ""
+        print(f"  ! download failed {url}: {e}{kept}")
+        return have
+    _REFRESHED_URLS.add(url)
+    if have and (not body or body == local.read_bytes()):
+        return True  # unchanged (or a bogus empty refresh): keep the old mtime
+    local.parent.mkdir(parents=True, exist_ok=True)
+    local.write_bytes(body)
+    return True
 
 
 def only_blocked_distributions(record: dict) -> bool:
@@ -921,12 +938,18 @@ def write_classification_csv(src: Path, dest: Path) -> None:
         if (c in ("Code", "ParentCode") or c.startswith(("Name_", "Description_")))
         and any(r.get(c) for r in rows)
     ]
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=kept, lineterminator="\n")
+    w.writeheader()
+    for r in rows:
+        w.writerow({c: r.get(c, "") for c in kept})
+    content = buf.getvalue()
+    # Rewrite only on change: an untouched mtime lets the incremental scan skip
+    # the (up to 50k-row) nomenclature table.
+    if dest.exists() and dest.read_text(encoding="utf-8") == content:
+        return
     dest.parent.mkdir(parents=True, exist_ok=True)
-    with dest.open("w", encoding="utf-8", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=kept, lineterminator="\n")
-        w.writeheader()
-        for r in rows:
-            w.writerow({c: r.get(c, "") for c in kept})
+    dest.write_text(content, encoding="utf-8", newline="")
 
 
 def nomenclature_note(nomen_ds_id: str) -> dict[str, str]:
@@ -949,6 +972,7 @@ def build(
     publisher: str | None,
     download: bool,
     drop_blocked: bool,
+    refresh: bool,
 ) -> None:
     data_dir = out / "data" / "i14y"
     meta_dir = out / "metadata"
@@ -990,7 +1014,7 @@ def build(
                 return
             url, ext = cands[0]
             base = sid(summary.get("identifier") or summary["id"])
-            download_file(url, data_dir / f"{base}{ext}")
+            download_file(url, data_dir / f"{base}{ext}", refresh)
 
         with ThreadPoolExecutor(MAX_WORKERS) as ex:
             list(ex.map(_prime_download, datasets))
@@ -1051,6 +1075,7 @@ def build(
     }
     ds_rows: list[dict] = []
     var_rows: list[dict] = []
+    used_files: set[Path] = set()
     docs: dict[str, dict] = {}
     needed_codelists: set[str] = set()
     concepts_used: dict[str, dict] = {}
@@ -1131,13 +1156,14 @@ def build(
         for url, ext in candidate_distributions(rec):
             local = data_dir / f"{base_name}{ext}"
             if download:
-                download_file(url, local)
+                download_file(url, local, refresh)
             if local.exists() and local.stat().st_size > 0:
                 data_path = url
                 # datannurpy resolves _match_path relative to the metadata dir,
                 # so write the local path relative to it (walk_up -> ../data/...).
                 match_path = local.relative_to(meta_dir, walk_up=True).as_posix()
                 colmap = {col_key(c): c for c in real_columns(local)}
+                used_files.add(local)
                 break
             if local.exists():  # empty/broken download: drop it and try the next
                 local.unlink()
@@ -1292,6 +1318,7 @@ def build(
         ident = concept["identifier"]
         dest = class_dir / f"{sid(ident)}.csv"
         write_classification_csv(codelist_csv(concept["id"]), dest)
+        used_files.add(dest)
         org_id = ensure_org(concept.get("publisher") or {}, orgs)
         cls_ds_id = NOMEN_FOLDER + ID_SEP + sid(ident)
         ds_rows.append(
@@ -1320,6 +1347,17 @@ def build(
                 }
             )
 
+    # Refresh keeps data/ across runs, so prune files no longer backing a
+    # dataset (removed from i14y, changed preferred format, newly geo-blocked):
+    # both data dirs are folder-scanned by catalog.yml, where a stray file would
+    # surface as a phantom dataset. Skipped on filtered runs (--limit /
+    # --publisher), which see only a slice of the corpus.
+    if refresh and not (limit or publisher):
+        for stray in (*data_dir.glob("*"), *class_dir.glob("*")):
+            if stray.is_file() and stray not in used_files:
+                stray.unlink()
+                print(f"  - removed stale {stray.relative_to(out)}")
+
     # documentation files -> download into staging/docs (copy_assets moves them
     # to data/doc at build time, matching the existing doc convention)
     doc_rows = list(docs.values())
@@ -1328,7 +1366,7 @@ def build(
         got = 0
         for d in doc_rows:
             local = docs_dir / f"{d['id']}.{d['type']}"
-            if download_file(d["_url"], local):
+            if download_file(d["_url"], local, refresh):
                 got += 1
         print(f"i14y: {got}/{len(doc_rows)} documentation file(s) into staging/docs")
 
@@ -1428,6 +1466,11 @@ def main() -> int:
         action="store_true",
         help="skip datasets whose file is only on a CI-blocked host (BLOCKED_HOSTS)",
     )
+    ap.add_argument(
+        "--refresh-data",
+        action="store_true",
+        help="re-download existing data files, rewriting only those that changed",
+    )
     args = ap.parse_args()
     build(
         args.out,
@@ -1435,6 +1478,7 @@ def main() -> int:
         args.publisher,
         download=not args.no_download,
         drop_blocked=args.drop_blocked_hosts,
+        refresh=args.refresh_data,
     )
     return 0
 

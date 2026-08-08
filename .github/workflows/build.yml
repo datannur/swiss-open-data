@@ -84,7 +84,8 @@ jobs:
       # Persist three things between runs so the weekly rebuild is fast and
       # gentle on the i14y API:
       #   - staging/i14y : cached API responses (reruns are offline)
-      #   - data         : downloaded files (download_file skips existing ones)
+      #   - data         : downloaded files (download_file skips existing ones;
+      #     on schedule --refresh-data re-checks them, see below)
       #   - catalog/data/db : the exported db, incl. the incremental scan base
       #     (_scan) and the evolution table. Caching the whole db (not just _scan)
       #     lets datannurpy compare each build against the previous one, so the
@@ -104,14 +105,18 @@ jobs:
           key: i14y-build-${{ github.run_id }}
           restore-keys: i14y-build-
 
-      # The i14y cache and downloads have no TTL, so a scheduled run that reused
-      # them would redeploy a frozen catalog. On the weekly schedule, drop them so
-      # new and changed datasets are actually picked up. Push and manual runs keep
-      # the caches for speed; the scan cache (catalog/data/db) is kept either way
-      # and re-scans only files whose mtime changed.
-      - name: Refresh i14y data on schedule
+      # The i14y API cache has no TTL, so a scheduled run that reused it would
+      # redeploy frozen metadata. On the weekly schedule, drop it so new and
+      # changed datasets are actually picked up. data/ is NOT dropped: the
+      # schedule instead passes --refresh-data, which re-downloads every file
+      # but rewrites only those whose content changed. Unchanged files keep
+      # their mtime (so the kept scan cache in catalog/data/db skips them, and
+      # the evolution table records only real changes), and a host that is down
+      # that morning falls back to last week's file instead of deploying the
+      # dataset hollow. Push and manual runs keep all caches for speed.
+      - name: Refresh i14y metadata on schedule
         if: github.event_name == 'schedule'
-        run: rm -rf staging/i14y data
+        run: rm -rf staging/i14y
 
       # -u keeps stdout unbuffered so progress is visible live through `tee`
       # (block buffering otherwise makes the step look frozen). The step timeout
@@ -122,7 +127,9 @@ jobs:
         # would hide a fetch failure and only surface downstream.
         run: |
           set -o pipefail
-          uv run python -u src/i14y.py --drop-blocked-hosts 2>&1 | tee build.log
+          uv run python -u src/i14y.py --drop-blocked-hosts \
+            ${{ github.event_name == 'schedule' && '--refresh-data' || '' }} \
+            2>&1 | tee build.log
 
       - name: Provide app configuration
         env:
