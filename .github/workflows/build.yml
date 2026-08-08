@@ -15,6 +15,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      refresh:
+        description: "Refresh i14y data (schedule-parity run)"
+        type: boolean
+        default: false
   schedule:
     - cron: "39 3 * * 1"
 
@@ -113,9 +118,10 @@ jobs:
       # their mtime (so the kept scan cache in catalog/data/db skips them, and
       # the evolution table records only real changes), and a host that is down
       # that morning falls back to last week's file instead of deploying the
-      # dataset hollow. Push and manual runs keep all caches for speed.
+      # dataset hollow. Push and manual runs keep all caches for speed; a manual
+      # run with the refresh input set behaves like a scheduled one.
       - name: Refresh i14y metadata on schedule
-        if: github.event_name == 'schedule'
+        if: github.event_name == 'schedule' || inputs.refresh
         run: rm -rf staging/i14y
 
       # -u keeps stdout unbuffered so progress is visible live through `tee`
@@ -128,7 +134,7 @@ jobs:
         run: |
           set -o pipefail
           uv run python -u src/i14y.py --drop-blocked-hosts \
-            ${{ github.event_name == 'schedule' && '--refresh-data' || '' }} \
+            ${{ (github.event_name == 'schedule' || inputs.refresh) && '--refresh-data' || '' }} \
             2>&1 | tee build.log
 
       - name: Provide app configuration
