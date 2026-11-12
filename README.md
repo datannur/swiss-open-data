@@ -146,37 +146,20 @@ adapted from [datannur/datannur-template](https://github.com/datannur/datannur-t
   metadata-only smoke build (`src/i14y.py --limit 12 --no-download`). Nothing is
   fetched at scale or deployed.
 - **Pushes to `main`, the weekly schedule, and manual runs** (`workflow_dispatch`)
-  fetch i14y, build the catalog, export the DCAT and OpenAPI artifacts, build the
-  static pages, and deploy to swiss-demo.datannur.com by rsync over SSH. The weekly
-  cron keeps the catalog in sync with i14y automatically.
+  fetch i14y, build the catalog, export the DCAT and OpenAPI artifacts, and
+  publish the result on GitHub Pages at swiss-demo.datannur.com. The weekly cron
+  keeps the catalog in sync with i14y automatically.
 
 The i14y API responses and downloaded files are cached between runs, so push and
 manual reruns stay fast and gentle on the API. The weekly scheduled run drops that
 cache first so it picks up new and changed i14y datasets; the incremental scan
 cache is kept and re-scans only the files that actually changed.
 
-Deployment requires these repository secrets (**Settings → Secrets and variables
-→ Actions**):
-
-| Secret | Value |
-| --- | --- |
-| `DEPLOY_SSH_KEY` | Private SSH key authorized on the target server |
-| `DEPLOY_HOST` | Server hostname |
-| `DEPLOY_USER` | SSH user |
-| `DEPLOY_PORT` | SSH port (optional, defaults to 22) |
-| `DEPLOY_REMOTE_PATH` | Absolute path of the catalog root on the server |
-| `INFOMANIAK_API_KEY` | Infomaniak AI key for the LLM widget (optional) |
-| `INFOMANIAK_PRODUCT_ID` | Infomaniak AI product id (optional) |
-| `TURNSTILE_SITE_KEY` | Cloudflare Turnstile site key (optional) |
-| `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile secret key (optional) |
-
-The workflow generates `app_conf/deploy.config.json` and, when the Infomaniak
-secrets are set, `app_conf/llm-web.config.json` from these secrets at build time;
-they never leave the runner. The LLM credentials are read only server-side by the
-deployed PHP proxy (`app/api/llm`) and denied over HTTP by `.htaccess`, so they
-are never exposed to the browser. Without the deploy secrets the build and
-artifact steps still succeed and only the final rsync fails; without the LLM
-secrets the catalog builds normally with the LLM widget disabled.
+GitHub Pages serves static files only, so the published catalog differs from a
+PHP/Apache deployment: the app uses `#/` routing (no clean URLs or automatic
+language redirect), the server-side APIs (`app/api`: REST and LLM chat) are not
+published, the static SEO pages are not built, and the DCAT and OpenAPI files are
+served under `/data/` rather than `/api/`. No secrets are needed.
 
 ## License
 
